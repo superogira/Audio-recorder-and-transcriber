@@ -1,5 +1,9 @@
 # Audio-recorder-and-transcriber
-ไปทดลองเล่นได้ที่ >>> [E25WOP.com](https://e25wop.com/ham_radio_recorder_transcriber/)
+source code ทำงานกับ Python 3.11.9 ถ้าเวอร์ชั่นสูงกว่านี้อาจจะไม่ทำงาน
+
+
+## ไปทดลองเล่นได้ที่
+[E25WOP.com](https://e25wop.com/ham_radio_recorder_transcriber/)
 
 
 ## การถอดข้อความจากเสียง ปัจจุบันทำไว้รองรับ 2 ระบบ คือ
