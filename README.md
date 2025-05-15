@@ -5,6 +5,7 @@
 ## การถอดข้อความจากเสียง ปัจจุบันทำไว้รองรับ 2 ระบบ คือ
 1. Microsoft Azure AI Speech to Text
 2. Google Cloud Speech-to-Text
+
 เพราะฉนั้นก่อนการใช้งานควรไปสมัครสร้าง API ก่อน
 
 
