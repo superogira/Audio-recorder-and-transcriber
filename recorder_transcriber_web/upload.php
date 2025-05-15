@@ -11,6 +11,9 @@ function getFolderSize($dir) {
     return $size;
 }
 
+$upload_dir = __DIR__ . '/audio_files/';
+if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
+
 $maxSize = 5 * 1024 * 1024 * 1024; // 5GB
 $folder = __DIR__ . "/audio_files";
 
@@ -49,8 +52,6 @@ $station = $_POST['station'] ?? '';
 $filename = basename($_FILES['audio']['name']);
 $transcript = $_POST['transcript'] ?? '';
 $duration = $_POST['duration'] ?? '';
-$upload_dir = __DIR__ . '/audio_files/';
-if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
 
 // บันทึกไฟล์เสียง
 $target_path = $upload_dir . $filename;
