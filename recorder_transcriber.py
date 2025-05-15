@@ -8,51 +8,46 @@ import queue
 from datetime import datetime
 import requests
 import json
+import random
 import azure.cognitiveservices.speech as speechsdk
 from google.cloud import speech
 
-# === ตั้งค่า Google Cloud API ===
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "xxx-xxx-xxx.json"
-
-# === ตั้งค่า Azure Speech ===
-SPEECH_KEY = "xxxxxxxxx"
-SERVICE_REGION = "southeastasia"
-LANGUAGE = "th-TH"
+last_engine = None  # สำหรับ mode 'alternate'
 
 # === โหลด config จากไฟล์ ===
-CONFIG_FILE = "recorder_config.json"
+CONFIG_FILE = "recorder_transcriber-config.json"
 if not os.path.exists(CONFIG_FILE):
-    raise FileNotFoundError("ไม่พบ recorder_config.json")
+    raise FileNotFoundError("ไม่พบ recorder_transcriber-config.json")
 
 with open(CONFIG_FILE, "r") as f:
     config = json.load(f)
+
+# === ตั้งค่า Azure Speech API===
+SPEECH_KEY = config.get("azure_speech_key","") # Key สำหรับเรียก API
+SERVICE_REGION = config.get("azure_service_region","") # Location หรือ Region สำหรับเรียก Resource
+LANGUAGE = config.get("azure_language","") # ภาษาที่จะถอดเสียง
+
+# === ตั้งค่า Google Cloud API ===
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = config.get("google_credentials","") # ตำแหน่งและชื่อไฟล์ Credentials
+LANGUAGE_CODE = config.get("google_language_code","") # ภาษาที่จะถอดเสียง
 
 # ดึงการตั้งค่าจากไฟล์ recorder_config.json
 FREQUENCY = config.get("frequency","") # ความถี่วิทยุที่ทำการบันทึกเสียงมา
 STATION = config.get("station","") # สถานี หรือ นามเรียกขาน ของผู้บันทึกเสียง
 THRESHOLD = config.get("threshold", 500) # ความดังต้องเกินกว่า ถึงจะเริ่มบันทึกเสียง
+RECORD_SECONDS = config.get("record_length",60) # ระยะเวลาสูงสุดที่จะบันทึกได้
 SILENCE_LIMIT = config.get("silence_limit", 1) # ถ้าเงียบเกินกว่า * วินาที ให้หยุดบันทึกเสียง
 MIN_DURATION_SEC = config.get("min_duration_sec", 3) # ถ้าความยาวเสียงน้อยกว่า * วินาที ไม่ต้องบันทึกไฟล์ ไม่ต้องแปลงไฟล์
-NUM_WORKERS = config.get("num_workers", 2)
+SAVE_FOLDER = config.get("save_folder","audio_files") # โฟลเดอร์สำหรับเก็บไฟล์เสียงที่บันทึก
+LOG_FILE = config.get("log_file","system.log") # ชื่อไฟล์สำหรับเก็บ Log
+NUM_WORKERS = config.get("num_workers", 2) # จำนวน worker ที่จะประมวลผลพร้อมกัน (เช่น 2 หรือ 4)
 UPLOAD_URL = config.get("upload_url", "https://catgg.net/ham_radio_recorder_transcriber/upload.php") # URL ระบบอัพโหลดไฟล์ และบันทึกข้อมูล
-TRANSCRIBE_ENGINE = config.get("transcribe_engine", "azure") # เลือกระบบที่ต้องการใช้: 'azure' หรือ 'google'
-
-if TRANSCRIBE_ENGINE == "azure":
-    SOURCE = "Azure AI Speech to Text"
-else:
-    SOURCE = "Google Cloud Speech-to-Text"
+TRANSCRIBE_ENGINE = config.get("transcribe_engine", "azure") # เลือกระบบที่ต้องการใช้: "azure", "google", "random, "alternate"
 
 # === ตั้งค่าระบบ ===
-# THRESHOLD = 1200
 CHUNK = 1024
 RATE = 16000
-# SILENCE_LIMIT = 1
-RECORD_SECONDS = 60
-# MIN_DURATION_SEC = 4.0
-SAVE_FOLDER = "audio_files"
-LOG_FILE = "system.log"
-# NUM_WORKERS = 2
-# UPLOAD_URL = "https://catgg.net/ham_radio_recorder_transcriber/upload.php"
+
 
 os.makedirs(SAVE_FOLDER, exist_ok=True)
 audio_queue = queue.Queue()
@@ -148,7 +143,7 @@ def record_until_silent():
     return filepath, duration
 
 # ระบบถอดเสียงด้วย Azure
-def transcribe_audio_azure(filepath, duration):
+def transcribe_audio_azure(filepath, duration, engine_used):
     speech_config = speechsdk.SpeechConfig(subscription=SPEECH_KEY, region=SERVICE_REGION)
     speech_config.speech_recognition_language = LANGUAGE
     audio_config = speechsdk.audio.AudioConfig(filename=filepath)
@@ -161,8 +156,8 @@ def transcribe_audio_azure(filepath, duration):
         text = result.text.strip()
         log(f"✅ ถอดข้อความ (Azure): {text}")
     elif result.reason == speechsdk.ResultReason.NoMatch:
-        text = "[ไม่สามารถถอดเสียงได้]"
-        log("❌ Azure: ไม่สามารถถอดเสียงได้")
+        text = "[ไม่สามารถถอดข้อความจากเสียงได้]"
+        log("❌ Azure: ไม่สามารถถอดข้อความจากเสียงได้")
     else:
         text = "[ยกเลิกหรือเกิดข้อผิดพลาด]"
         log(f"🚫 ยกเลิก: {result.reason}")
@@ -170,10 +165,10 @@ def transcribe_audio_azure(filepath, duration):
     with open(filepath.replace(".wav", ".txt"), "w", encoding="utf-8") as f:
         f.write(text)
 
-    upload_audio_and_text(filepath, text, duration)
+    upload_audio_and_text(filepath, text, duration, engine_used)
 
 # ระบบถอดเสียงด้วย Google Cloud
-def transcribe_audio_google(filepath, duration):
+def transcribe_audio_google(filepath, duration, engine_used):
     client = speech.SpeechClient()
     log(f"🧠 ส่งเสียงไป Google: {filepath}")
 
@@ -184,7 +179,7 @@ def transcribe_audio_google(filepath, duration):
     config = speech.RecognitionConfig(
         encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
         sample_rate_hertz=RATE,
-        language_code="th-TH",
+        language_code=LANGUAGE_CODE,
         audio_channel_count=1,
         enable_automatic_punctuation=True
     )
@@ -192,8 +187,8 @@ def transcribe_audio_google(filepath, duration):
     response = client.recognize(config=config, audio=audio)
 
     if not response.results:
-        log("❌ Google: ไม่สามารถถอดเสียงได้")
-        text = "[ไม่สามารถถอดเสียงได้]"
+        log("❌ Google: ไม่สามารถถอดข้อความจากเสียงได้")
+        text = "[ไม่สามารถถอดข้อความจากเสียงได้]"
     else:
         text = response.results[0].alternatives[0].transcript
         log(f"✅ ถอดข้อความ (Google): {text}")
@@ -201,15 +196,17 @@ def transcribe_audio_google(filepath, duration):
     with open(filepath.replace(".wav", ".txt"), "w", encoding="utf-8") as f:
         f.write(text)
 
-    upload_audio_and_text(filepath, text, duration)
+    upload_audio_and_text(filepath, text, duration, engine_used)
 
 # ระบบอัพโหลดไฟล์และข้อมูลเข้าไปเก็บที่เว็บและฐานข้อมูล
-def upload_audio_and_text(audio_path, transcript, duration):
+def upload_audio_and_text(audio_path, transcript, duration, engine_used):
+    source_name = get_source_name(engine_used)
+
     files = {'audio': open(audio_path, 'rb')}
     data = {
         'transcript': transcript,
         'filename': os.path.basename(audio_path),
-        'source': SOURCE,
+        'source': source_name,
         'frequency': FREQUENCY,
         'station': STATION,
         'duration': str(round(duration, 2))
@@ -230,19 +227,40 @@ def worker():
         if task:
             filepath, duration = task
             try:
-                if TRANSCRIBE_ENGINE == "azure":
-                    transcribe_audio_azure(filepath, duration)
-                elif TRANSCRIBE_ENGINE == "google":
-                    transcribe_audio_google(filepath, duration)
+                global last_engine
+
+                engine = TRANSCRIBE_ENGINE
+
+                if TRANSCRIBE_ENGINE == "random":
+                    engine = random.choice(["azure", "google"])
+                elif TRANSCRIBE_ENGINE == "alternate":
+                    if last_engine == "azure":
+                        engine = "google"
+                    else:
+                        engine = "azure"
+                    last_engine = engine
+
+                if engine == "azure":
+                    log("🎯 ใช้ระบบ Azure สำหรับการแปลงเสียง")
+                    transcribe_audio_azure(filepath, duration, engine)
+                elif engine == "google":
+                    log("🎯 ใช้ระบบ Google สำหรับการแปลงเสียง")
+                    transcribe_audio_google(filepath, duration, engine)
                 else:
                     log("⚠️ ยังไม่มีระบบแปลงเสียงที่เลือก")
             except Exception as e:
                 log(f"❌ ERROR: {e}")
         audio_queue.task_done()
 
+def get_source_name(engine_key):
+    return {
+        "azure": "Azure AI Speech to Text",
+        "google": "Google Cloud Speech-to-Text"
+    }.get(engine_key, "ไม่ทราบระบบแปลงเสียง")
+
 # Loop ระบบหลัก
 if __name__ == "__main__":
-    log(f"🚀 เริ่มระบบ {SOURCE} แบบ real-time")
+    log(f"🚀 เริ่มระบบ {get_source_name(TRANSCRIBE_ENGINE)} แบบ real-time (โหมด: {TRANSCRIBE_ENGINE})")
 
     for _ in range(NUM_WORKERS):
         threading.Thread(target=worker, daemon=True).start()
