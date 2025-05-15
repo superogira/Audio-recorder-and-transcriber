@@ -41,6 +41,7 @@ MIN_DURATION_SEC = config.get("min_duration_sec", 3) # ถ้าความย�
 SAVE_FOLDER = config.get("save_folder","audio_files") # โฟลเดอร์สำหรับเก็บไฟล์เสียงที่บันทึก
 LOG_FILE = config.get("log_file","system.log") # ชื่อไฟล์สำหรับเก็บ Log
 NUM_WORKERS = config.get("num_workers", 2) # จำนวน worker ที่จะประมวลผลพร้อมกัน (เช่น 2 หรือ 4)
+UPLOAD_ENABLED = config.get("upload", True) # ตั้งค่า เปิด-ปิด การใช้งานระบบอัพโหลดไฟล์ และบันทึกข้อมูล
 UPLOAD_URL = config.get("upload_url", "https://catgg.net/ham_radio_recorder_transcriber/upload.php") # URL ระบบอัพโหลดไฟล์ และบันทึกข้อมูล
 TRANSCRIBE_ENGINE = config.get("transcribe_engine", "azure") # เลือกระบบที่ต้องการใช้: "azure", "google", "random, "alternate"
 
@@ -199,8 +200,11 @@ def transcribe_audio_google(filepath, duration, engine_used):
 
 # ระบบอัพโหลดไฟล์และข้อมูลเข้าไปเก็บที่เว็บและฐานข้อมูล
 def upload_audio_and_text(audio_path, transcript, duration, engine_used):
-    source_name = get_source_name(engine_used)
+    if not UPLOAD_ENABLED:
+        log("☁️ การ Upload ถูกตั้งค่าปิดการใช้งาน; ข้ามกระบวนการ Upload")
+        return
 
+    source_name = get_source_name(engine_used)
     files = {'audio': open(audio_path, 'rb')}
     data = {
         'transcript': transcript,
