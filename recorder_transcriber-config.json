@@ -14,6 +14,6 @@
   "log_file": "system.log",
   "num_workers": 2,
   "upload": false,
-  "upload_url": "https://catgg.net/ham_radio_recorder_transcriber/upload.php",
+  "upload_url": "https://e25wop.com/ham_radio_recorder_transcriber/upload.php",
   "transcribe_engine": "alternate"
 }
