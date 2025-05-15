@@ -42,7 +42,7 @@ SAVE_FOLDER = config.get("save_folder","audio_files") # โฟลเดอร์
 LOG_FILE = config.get("log_file","system.log") # ชื่อไฟล์สำหรับเก็บ Log
 NUM_WORKERS = config.get("num_workers", 2) # จำนวน worker ที่จะประมวลผลพร้อมกัน (เช่น 2 หรือ 4)
 UPLOAD_ENABLED = config.get("upload", True) # ตั้งค่า เปิด-ปิด การใช้งานระบบอัพโหลดไฟล์ และบันทึกข้อมูล
-UPLOAD_URL = config.get("upload_url", "https://catgg.net/ham_radio_recorder_transcriber/upload.php") # URL ระบบอัพโหลดไฟล์ และบันทึกข้อมูล
+UPLOAD_URL = config.get("upload_url", "https://e25wop.com/ham_radio_recorder_transcriber/upload.php") # URL ระบบอัพโหลดไฟล์ และบันทึกข้อมูล
 TRANSCRIBE_ENGINE = config.get("transcribe_engine", "azure") # เลือกระบบที่ต้องการใช้: "azure", "google", "random, "alternate"
 
 # === ตั้งค่าระบบ ===
