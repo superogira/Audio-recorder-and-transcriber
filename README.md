@@ -21,5 +21,10 @@
 - ตั้งค่าว่าจะเก็บไฟล์ขนาดรวมกันได้เท่าไหร่  ($maxSize) ก่อนจะลบไฟล์เก่าสุดออก ใน upload.php (ค่าพื้นฐาน คือ 5GB)
 
 
+# ปัญหาที่ทราบอยู่แล้ว
+- ถ้าใช้ Remote Desktop Connection ของ Windows เพื่อ Remote เข้าไป run ระบบ
+ตอนตัดการเชื่อมต่อ Remote จะเกิด error แนวทางแก้ไขเบื้องต้นคือ ให้ใช้โปรแกรม Remote ตัวอื่น เช่น Anydesk
+
+
 ### มีปัญหาข้อสอบถามติดต่อได้ที่ Facebook
 [FACEBOOK](https://www.facebook.com/superogira)
