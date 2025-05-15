@@ -6,7 +6,7 @@
 1. Microsoft Azure AI Speech to Text
 2. Google Cloud Speech-to-Text
 
-เพราะฉนั้นก่อนการใช้งานควรไปสมัครสร้าง API ก่อน
+เพราะฉนั้นก่อนการใช้งานควรไปสร้าง API ก่อน (วิธีการสมัคร , การสร้าง สามารถสอบถามจาก ChatGPT ได้เลย)
 
 
 ## การตั้งค่าการทำงานของระบบ ให้ตั้งค่าที่ไฟล์ recorder_transcriber-config.json
