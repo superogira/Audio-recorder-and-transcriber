@@ -1,0 +1,18 @@
+{
+  "azure_speech_key": "xxxxxxxxxx",
+  "azure_service_region": "southeastasia",
+  "azure_language": "th-TH",
+  "google_credentials": "xxx-xxx-xxxx.json",
+  "google_language_code": "th-TH",
+  "frequency": "",
+  "station": "E25WOP",
+  "threshold": 400,
+  "record_length": 60,
+  "silence_limit": 1,
+  "min_duration_sec": 2.5,
+  "save_folder": "audio_files",
+  "log_file": "system.log",
+  "num_workers": 2,
+  "upload_url": "https://catgg.net/ham_radio_recorder_transcriber/upload.php",
+  "transcribe_engine": "alternate"
+}
