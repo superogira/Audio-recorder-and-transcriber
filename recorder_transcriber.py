@@ -48,7 +48,6 @@ TRANSCRIBE_ENGINE = config.get("transcribe_engine", "azure") # เลือก�
 CHUNK = 1024
 RATE = 16000
 
-
 os.makedirs(SAVE_FOLDER, exist_ok=True)
 audio_queue = queue.Queue()
 
@@ -221,7 +220,7 @@ def upload_audio_and_text(audio_path, transcript, duration, engine_used):
     except Exception as e:
         log(f"❌ Upload exception: {e}")
 
-def worker():
+def worker(worker_id):
     while True:
         task = audio_queue.get()
         if task:
@@ -241,15 +240,15 @@ def worker():
                     last_engine = engine
 
                 if engine == "azure":
-                    log("🎯 ใช้ระบบ Azure สำหรับการแปลงเสียง")
+                    log(f"[Worker {worker_id}] 🎯 ใช้ระบบ Azure สำหรับการแปลงเสียง")
                     transcribe_audio_azure(filepath, duration, engine)
                 elif engine == "google":
-                    log("🎯 ใช้ระบบ Google สำหรับการแปลงเสียง")
+                    log(f"[Worker {worker_id}]  ใช้ระบบ Google สำหรับการแปลงเสียง")
                     transcribe_audio_google(filepath, duration, engine)
                 else:
                     log("⚠️ ยังไม่มีระบบแปลงเสียงที่เลือก")
             except Exception as e:
-                log(f"❌ ERROR: {e}")
+                log(f"[Worker {worker_id}]❌ ERROR: {e}")
         audio_queue.task_done()
 
 def get_source_name(engine_key):
@@ -262,8 +261,8 @@ def get_source_name(engine_key):
 if __name__ == "__main__":
     log(f"🚀 เริ่มระบบ {get_source_name(TRANSCRIBE_ENGINE)} แบบ real-time (โหมด: {TRANSCRIBE_ENGINE})")
 
-    for _ in range(NUM_WORKERS):
-        threading.Thread(target=worker, daemon=True).start()
+    for i in range(NUM_WORKERS):
+        threading.Thread(target=worker, args=(i+1,), daemon=True).start()
 
     while True:
         result = record_until_silent()
