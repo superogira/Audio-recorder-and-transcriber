@@ -4,7 +4,7 @@ source code ทำงานกับ Python 3.11.9 ถ้าเวอร์ช�
 
 ## ไปทดลองเล่นได้ที่
 [E25WOP.com](https://e25wop.com/ham_radio_recorder_transcriber/)
-
+![Alt text](Audio-recorder-and-transcriber-web?raw=true)
 
 ## การถอดข้อความจากเสียง ปัจจุบันทำไว้รองรับ 2 ระบบ คือ
 1. Microsoft Azure AI Speech to Text
