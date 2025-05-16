@@ -23,6 +23,10 @@ $logged_in = $_SESSION['logged_in'] ?? false;
         body { font-size: 1.1rem; }
         h2 { font-size: 2rem; }
       .badge-purple { background-color: #6f42c1; }
+	  .container-99 {
+		max-width: 99vw;
+		margin: 0 auto;
+	  }
     </style>
 </head>
 <body class="bg-light">
@@ -34,46 +38,52 @@ $logged_in = $_SESSION['logged_in'] ?? false;
     <?php endif; ?>
 </div>
 
+<div class="container-fluid container-99 mt-5 px-5">
+  <!-- row สำหรับกราฟทั้งสอง -->
+  <div class="row">
+    <!-- กราฟจำนวนไฟล์ -->
+    <div class="col-12 col-lg-6 mb-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="card-title">📈 สถิติไฟล์ที่บันทึก (จำนวนต่อวัน)</h5>
+          <!-- Date picker + filter button ของกราฟนี้ -->
+          <div class="row g-2 mb-3">
+            <div class="col-auto">
+              <input type="text" id="statFrom" class="form-control" placeholder="จากวันที่">
+            </div>
+            <div class="col-auto">
+              <input type="text" id="statTo"   class="form-control" placeholder="ถึงวันที่">
+            </div>
+            <div class="col-auto">
+              <button id="filterStatBtn" class="btn btn-outline-primary">กรอง</button>
+            </div>
+          </div>
+          <canvas id="statChart" height="100"></canvas>
+        </div>
+      </div>
+    </div>
 
-<div class="card mb-4">
-  <div class="card-body">
-    <h5 class="card-title">📈 สถิติไฟล์ที่ถูกบันทึก (จำนวนต่อวัน)</h5>
-	<div class="row g-2 mb-3">
-	  <div class="col-md-auto">
-		<label for="statFrom" class="form-label">จากวันที่:</label>
-		<input type="text" id="statFrom" class="form-control" placeholder="เริ่มต้น">
-	  </div>
-	  <div class="col-md-auto">
-		<label for="statTo" class="form-label">ถึงวันที่:</label>
-		<input type="text" id="statTo" class="form-control" placeholder="สิ้นสุด">
-	  </div>
-	  <div class="col-md-auto">
-		<label class="form-label d-block">&nbsp;</label>
-		<button id="filterStatBtn" class="btn btn-outline-primary"><i class="bi bi-funnel"></i> กรอง</button>
-	  </div>
-	</div>
-    <canvas id="statChart" height="100"></canvas>
-  </div>
-</div>
-
-<div class="card mb-4">
-  <div class="card-body">
-    <h5 class="card-title">🕒 เวลารวมที่บันทึกเสียง (วินาทีต่อวัน)</h5>
-	<div class="row g-2 mb-3">
-	  <div class="col-md-auto">
-		<label for="durationFrom" class="form-label">จากวันที่:</label>
-		<input type="text" id="durationFrom" class="form-control" placeholder="เริ่มต้น">
-	  </div>
-	  <div class="col-md-auto">
-		<label for="durationTo" class="form-label">ถึงวันที่:</label>
-		<input type="text" id="durationTo" class="form-control" placeholder="สิ้นสุด">
-	  </div>
-	  <div class="col-md-auto">
-		<label class="form-label d-block">&nbsp;</label>
-		<button id="filterDurationBtn" class="btn btn-outline-success"><i class="bi bi-funnel"></i> กรอง</button>
-	  </div>
-	</div>
-    <canvas id="durationChart" height="100"></canvas>
+    <!-- กราฟเวลารวม (duration) -->
+    <div class="col-12 col-lg-6 mb-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="card-title">🕒 เวลารวมที่บันทึกเสียง (วินาทีต่อวัน)</h5>
+          <!-- Date picker + filter button ของกราฟนี้ -->
+          <div class="row g-2 mb-3">
+            <div class="col-auto">
+              <input type="text" id="durationFrom" class="form-control" placeholder="จากวันที่">
+            </div>
+            <div class="col-auto">
+              <input type="text" id="durationTo"   class="form-control" placeholder="ถึงวันที่">
+            </div>
+            <div class="col-auto">
+              <button id="filterDurationBtn" class="btn btn-outline-success">กรอง</button>
+            </div>
+          </div>
+          <canvas id="durationChart" height="100"></canvas>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
