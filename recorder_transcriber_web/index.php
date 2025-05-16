@@ -58,6 +58,7 @@ $logged_in = $_SESSION['logged_in'] ?? false;
 
 <div class="card mb-4">
   <div class="card-body">
+    <h5 class="card-title">🕒 เวลารวมที่บันทึกเสียง (วินาทีต่อวัน)</h5>
 	<div class="row g-2 mb-3">
 	  <div class="col-md-auto">
 		<label for="durationFrom" class="form-label">จากวันที่:</label>
@@ -72,7 +73,6 @@ $logged_in = $_SESSION['logged_in'] ?? false;
 		<button id="filterDurationBtn" class="btn btn-outline-success"><i class="bi bi-funnel"></i> กรอง</button>
 	  </div>
 	</div>
-    <h5 class="card-title">🕒 เวลารวมที่บันทึกเสียง (วินาทีต่อวัน)</h5>
     <canvas id="durationChart" height="100"></canvas>
   </div>
 </div>
@@ -352,8 +352,8 @@ function loadStatChart() {
 
 function getColor(source) {
   if (source.includes("Azure")) return 'rgba(13,110,253,0.6)';         // น้ำเงิน
-  if (source.includes("Google")) return 'rgba(255,193,7,0.6)';          // เหลือง
-  if (source.includes("Whisper")) return 'rgba(25,135,84,0.6)';         // เขียว
+  if (source.includes("Google")) return 'rgba(25,135,84,0.6)';         // เขียว
+  if (source.includes("Whisper")) return 'rgba(255,193,7,0.6)';          // เหลือง
   if (source.includes("Wav2Vec2")) return 'rgba(108,117,125,0.6)';      // เทาเข้ม
   if (source.includes("ไม่ระบุ")) return 'rgba(108,117,125,0.4)';       // เทาอ่อน ✅
   return 'rgba(150,150,150,0.4)';  // default สำรอง
