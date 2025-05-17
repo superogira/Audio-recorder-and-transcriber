@@ -30,12 +30,19 @@ $logged_in = $_SESSION['logged_in'] ?? false;
     </style>
 </head>
 <body class="bg-light">
-<div class="mb-3">
-    <?php if ($logged_in): ?>
-        <a href="logout.php" class="btn btn-outline-secondary">ออกจากระบบ</a>
-    <?php else: ?>
-        <a href="login.php" class="btn btn-outline-primary">เข้าสู่ระบบผู้ดูแล</a>
-    <?php endif; ?>
+
+<div class="mb-3 d-flex align-items-center">
+  <?php if ($logged_in): ?>
+    <a href="logout.php" class="btn btn-outline-secondary">ออกจากระบบ</a>
+  <?php else: ?>
+    <a href="login.php" class="btn btn-outline-primary">เข้าสู่ระบบผู้ดูแล</a>
+  <?php endif; ?>
+
+  <!-- กลุ่มนี้จะถูกดันไปฝั่งขวา -->
+  <div class="ms-auto text-muted">
+    จำนวนผู้ใช้ที่ออนไลน์ตอนนี้:
+    <span id="onlineCount" class="fw-bold">–</span>
+  </div>
 </div>
 
 <div class="container-fluid container-99 mt-5 px-5">
@@ -55,7 +62,7 @@ $logged_in = $_SESSION['logged_in'] ?? false;
               <input type="text" id="statTo"   class="form-control" placeholder="ถึงวันที่">
             </div>
             <div class="col-auto">
-              <button id="filterStatBtn" class="btn btn-outline-primary">กรอง</button>
+              <button id="filterStatBtn" class="btn btn-outline-primary"><i class="bi bi-funnel"></i> กรอง</button>
             </div>
           </div>
           <canvas id="statChart" height="100"></canvas>
@@ -77,7 +84,7 @@ $logged_in = $_SESSION['logged_in'] ?? false;
               <input type="text" id="durationTo"   class="form-control" placeholder="ถึงวันที่">
             </div>
             <div class="col-auto">
-              <button id="filterDurationBtn" class="btn btn-outline-success">กรอง</button>
+              <button id="filterDurationBtn" class="btn btn-outline-warning"><i class="bi bi-funnel"></i> กรอง</button>
             </div>
           </div>
           <canvas id="durationChart" height="100"></canvas>
@@ -85,10 +92,36 @@ $logged_in = $_SESSION['logged_in'] ?? false;
       </div>
     </div>
   </div>
+	
+	<!-- row ใหม่ สำหรับกราฟ frequency -->
+	<div class="row justify-content-center">
+	  <div class="col-12 col-lg-6 mb-4">
+		<div class="card h-100">
+		  <div class="card-body">
+			<h5 class="card-title">🎯 จำนวนการบันทึกของแต่ละความถี่</h5>
+			<div class="row g-2 mb-3">
+			  <div class="col-auto">
+				<input type="text" id="freqFrom" class="form-control" placeholder="จากวันที่">
+			  </div>
+			  <div class="col-auto">
+				<input type="text" id="freqTo"   class="form-control" placeholder="ถึงวันที่">
+			  </div>
+			  <div class="col-auto">
+				<button id="filterFreqBtn" class="btn btn-outline-secondary">
+				  <i class="bi bi-funnel"></i> กรอง
+				</button>
+			  </div>
+			</div>
+			<canvas id="freqChart" height="100"></canvas>
+		  </div>
+		</div>
+	  </div>
+	</div>
+
 </div>
 
 <div class="container-fluid mt-5 px-5">
-    <h2 class="mb-4">📻 รายการเสียงที่บันทึกและข้อความที่ถอดได้ จากการ Scan เฝ้าฟังในช่วงความถี่ 144-147 MHz</h2>
+    <h2 class="mb-4">📻 รายการเสียงที่บันทึกและข้อความที่ถอดได้ จากการเฝ้าฟังในช่วงความถี่ต่าง ๆ</h2>
 
 	<div class="row g-3 mb-3 align-items-end">
 	  <div class="col-md-auto">
@@ -104,7 +137,8 @@ $logged_in = $_SESSION['logged_in'] ?? false;
       <select id="sourceFilter" class="form-select">
         <option value="">ทั้งหมด</option>
         <option value="Azure AI Speech to Text">Azure AI Speech to Text</option>
-        <option value="Whisper">Whisper</option>
+		<option value="Google Cloud Speech-to-Text">Google Cloud Speech-to-Text</option>
+		<option value="Speechmatics Speech-to-Text">Speechmatics Speech-to-Text</option>
       </select>
     </div>
 	  <div class="col-md-auto">
@@ -153,6 +187,9 @@ flatpickr("#durationFrom", { dateFormat: "Y-m-d" });
 flatpickr("#durationTo", { dateFormat: "Y-m-d" });
 flatpickr("#dateFrom", { dateFormat: "Y-m-d" });
 flatpickr("#dateTo", { dateFormat: "Y-m-d" });
+flatpickr("#freqFrom", { dateFormat: "Y-m-d" });
+flatpickr("#freqTo",   { dateFormat: "Y-m-d" });
+
 
 
 $(document).ready(function () {
@@ -189,9 +226,10 @@ $(document).ready(function () {
 			targets: 7, // คอลัมน์ระบบแปลงเสียง
 			render: function (data) {
 			  if (data === 'Azure AI Speech to Text') return '<span class="badge bg-primary" title="แปลงโดย Microsoft Azure AI Speech to Text"><i class="bi bi-cloud"></i> Azure</span>';
+			  if (data === 'Google Cloud Speech-to-Text') return '<span class="badge bg-success" title="แปลงโดย Google Cloud Speech-to-Text"><i class="bi bi-soundwave"></i> Google Cloud</span>';
+			  if (data === 'Speechmatics Speech-to-Text') return '<span class="badge bg-info" title="แปลงโดย Speechmatics Speech-to-Text"><i class="bi bi-soundwave"></i> Speechmatics</span>';
 			  if (data === 'Whisper') return '<span class="badge bg-success" title="แปลงโดย OpenAI Whisper"><i class="bi bi-robot"></i> Whisper</span>';
 			  if (data === 'Wav2Vec2') return '<span class="badge badge-purple" title="แปลงโดย Facebook Wav2Vec2"><i class="bi bi-soundwave"></i> Wav2Vec2</span>';
-			  if (data === 'Google Cloud Speech-to-Text') return '<span class="badge bg-success" title="แปลงโดย Google Cloud Speech-to-Text"><i class="bi bi-soundwave"></i> Google Cloud</span>';
 			  return data;
 			}
 		  }
@@ -363,6 +401,7 @@ function loadStatChart() {
 function getColor(source) {
   if (source.includes("Azure")) return 'rgba(13,110,253,0.6)';         // น้ำเงิน
   if (source.includes("Google")) return 'rgba(25,135,84,0.6)';         // เขียว
+  if (source.includes("Speechmatics")) return 'rgba(13,202,240,0.6)';        // น้ำเงิน
   if (source.includes("Whisper")) return 'rgba(255,193,7,0.6)';          // เหลือง
   if (source.includes("Wav2Vec2")) return 'rgba(108,117,125,0.6)';      // เทาเข้ม
   if (source.includes("ไม่ระบุ")) return 'rgba(108,117,125,0.4)';       // เทาอ่อน ✅
@@ -393,9 +432,9 @@ function loadDurationChart() {
         datasets: [{
           label: 'จำนวนวินาทีรวมที่อัดเสียงต่อวัน',
           data: res.data,
-          backgroundColor: 'rgba(25, 135, 84, 0.2)',
-          borderColor: 'rgba(25, 135, 84, 1)',
-          borderWidth: 2,
+          backgroundColor: 'rgba(255,193,7,0.6)',
+          /* borderColor: 'rgba(255,193,7,1)',
+          borderWidth: 2, */
           fill: true,
           tension: 0.3
         }]
@@ -416,8 +455,69 @@ function loadDurationChart() {
   });
 }
 
+
+let freqChart = null;
+function loadFreqChart() {
+  const from = $('#freqFrom').val();
+  const to   = $('#freqTo').val();
+
+  $.getJSON("chart_frequency.php", { dateFrom: from, dateTo: to }, function(res) {
+    const ctx = document.getElementById("freqChart").getContext("2d");
+    if (freqChart) freqChart.destroy();
+
+    freqChart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: res.labels,
+        datasets: [{
+          label: "จำนวนการบันทึก ตามความถี่",
+          data: res.data,
+          backgroundColor: res.labels.map(l =>
+            l === "อื่น ๆ / ไม่ได้ระบุ" ? "rgba(108,117,125,0.6)" : "rgba(13,110,253,0.6)"
+          )
+/*           borderColor: res.labels.map(l =>
+            l === "อื่น ๆ / ไม่ได้ระบุ" ? "rgba(108,117,125,1)" : "rgba(13,110,253,1)"
+          ),
+          borderWidth: 1 */
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { title: { display: true, text: "ความถี่ (MHz)" } },
+          y: {
+            beginAtZero: true,
+            title: { display: true, text: "จำนวนการบันทึก" },
+            ticks: { precision: 0 }
+          }
+        }
+      }
+    });
+  });
+}
+
+$(document).ready(function() {
+  flatpickr("#freqFrom", { dateFormat: "Y-m-d" });
+  flatpickr("#freqTo",   { dateFormat: "Y-m-d" });
+
+  $('#filterFreqBtn').on('click', loadFreqChart);
+  loadFreqChart();  // initial load
+});
+
+
 $('#filterDurationBtn').on('click', loadDurationChart);
 loadDurationChart(); // โหลดตอนเริ่มหน้า
+
+
+function updateOnlineCount() {
+  $.getJSON('online.php', function(res) {
+    $('#onlineCount').text(res.online);
+  });
+}
+
+// เรียกครั้งแรกแล้วให้ refresh ทุก 10 วินาที
+updateOnlineCount();
+setInterval(updateOnlineCount, 10000);
 
 
 
