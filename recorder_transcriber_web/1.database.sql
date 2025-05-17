@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: May 16, 2025 at 02:23 AM
+-- Generation Time: May 18, 2025 at 02:29 AM
 -- Server version: 10.11.11-MariaDB-0+deb12u1
 -- PHP Version: 8.4.5
 
@@ -20,8 +20,17 @@ SET time_zone = "+00:00";
 --
 -- Database: `recorder_transcriber`
 --
-CREATE DATABASE IF NOT EXISTS `recorder_transcriber` DEFAULT CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci;
-USE `recorder_transcriber`;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `online_users`
+--
+
+CREATE TABLE `online_users` (
+  `session_id` varchar(128) NOT NULL,
+  `last_activity` datetime NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -43,6 +52,12 @@ CREATE TABLE `records` (
 --
 -- Indexes for dumped tables
 --
+
+--
+-- Indexes for table `online_users`
+--
+ALTER TABLE `online_users`
+  ADD PRIMARY KEY (`session_id`);
 
 --
 -- Indexes for table `records`
