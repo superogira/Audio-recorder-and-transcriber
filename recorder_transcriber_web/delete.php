@@ -1,6 +1,12 @@
 <?php
 header('Content-Type: application/json');
 
+session_start();
+if (!($_SESSION['logged_in'] ?? false)) {
+    echo json_encode(['success' => false, 'error' => 'คุณต้องเข้าสู่ระบบก่อน']);
+    exit;
+}
+
 // ตั้งค่าการเชื่อมต่อ
 require 'db_config.php'; // สำหรับ $pdo
 
