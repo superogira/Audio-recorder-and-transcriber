@@ -666,13 +666,34 @@ if __name__ == "__main__":
     for i in range(NUM_WORKERS):
         threading.Thread(target=worker, args=(i+1,), daemon=True).start()
 
+    # while True:
+        # result = record_until_silent()
+        # if result:
+            # filepath, duration = result
+            # if AUDIO_PRE_PROCESSING:
+                # filepath = preprocess_audio(filepath)
+            # else:
+                # filepath, duration = result
+            # audio_queue.put((filepath, duration))
+        # time.sleep(0.5)
+
+    def schedule_task(fp, dur):
+        # ทำงานหนักฝั่งนี้ (เขียนไฟล์ preprocess แล้ว enqueue)
+        if AUDIO_PRE_PROCESSING:
+            fp2 = preprocess_audio(fp)
+        else:
+            fp2 = fp
+        audio_queue.put((fp2, dur))
+
     while True:
         result = record_until_silent()
         if result:
-            filepath, duration = result
-            if AUDIO_PRE_PROCESSING:
-                filepath = preprocess_audio(filepath)
-            else:
-                filepath, duration = result
-            audio_queue.put((filepath, duration))
-        time.sleep(0.5)
+            fp, dur = result
+            # เรียก thread ใหม่ให้ทันที ไม่ต้องรอ
+            threading.Thread(
+                target=schedule_task,
+                args=(fp, dur),
+                daemon=True
+            ).start()
+        # เลือกจะใส่ sleep น้อยๆ เพื่อไม่ให้ loop เต็มเร็วเกินไป
+        time.sleep(0.1)
