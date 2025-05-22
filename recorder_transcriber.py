@@ -10,11 +10,20 @@ from datetime import datetime
 import requests
 import json
 import random
-import msvcrt
 import azure.cognitiveservices.speech as speechsdk
 from google.cloud import speech
 from ibm_watson import SpeechToTextV1
 from ibm_cloud_sdk_core.authenticators import IAMAuthenticator
+
+# Imports ใหม่สำหรับ Cross-platform keyboard input
+import platform
+if platform.system() == "Windows":
+    import msvcrt
+else: # Linux/macOS
+    import sys
+    import select
+    import tty
+    import termios
 
 
 # สร้าง Event ควบคุมการพิมพ์ amplitude
@@ -46,6 +55,7 @@ LANGUAGE_CODE = config.get("google_language_code","") # ภาษาที่จ
 # === ตั้งค่า Speechmatics Speech-to-Text ===
 SPEECHMATICS_API_KEY = config.get("speechmatics_api_key", "") # API KEY
 SPEECHMATICS_LANGUAGE_CODE = config.get("speechmatics_language", "") # ภาษาที่จะถอดเสียง
+SPEECHMATICS_OPERATING_POINT = config.get("speechmatics_operating_point", "standard") # Accuracy
 SPEECHMATICS_URL = "https://asr.api.speechmatics.com/v2"
 
 # === ตั้งค่า IBM Cloud Speech to Text (ยังไม่รองรับภาษาไทย) ===
@@ -91,6 +101,25 @@ def log(msg):
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(f"{now} {msg}\n")
 
+# ฟังก์ชันสำหรับ non-blocking keyboard input บน Linux/macOS
+if platform.system() != "Windows":
+    def kbhit_linux():
+        """ตรวจสอบว่ามี key ถูกกดหรือไม่บน Linux/macOS"""
+        return select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], [])
+
+    def getch_linux():
+        """อ่าน key ที่ถูกกดบน Linux/macOS"""
+        if not kbhit_linux(): # ควรตรวจสอบ kbhit_linux() ก่อนเรียก getch_linux()
+            return None
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+
 # ระบบปรับเปลี่ยนค่า Config ระหว่างทำงาน
 def control_thread():
     global FREQUENCY
@@ -108,10 +137,31 @@ def control_thread():
     - หากผู้ใช้พิมพ์ E จะเข้าโหมดเปลี่ยน TRANSCRIBE_ENGINE_MODE
     - หากผู้ใช้พิมพ์ A จะสลับโหมดเปิด/ปิด AUDIO_PRE_PROCESSING
     """
+
+    is_windows = platform.system() == "Windows"
+
     while True:
-        if msvcrt.kbhit():
-            key = msvcrt.getch().upper()
-            if key == b'F':
+        key_pressed_detected = False
+        char_pressed_value = None
+
+        if is_windows:
+            if msvcrt.kbhit():
+                key_pressed_detected = True
+                # msvcrt.getch() returns bytes, convert to string and uppercase
+                try:
+                    char_pressed_value = msvcrt.getch().decode('utf-8', errors='ignore').upper()
+                except: # Handle potential errors if it's a special key not decodable
+                    pass
+        else: # Linux/macOS
+            if kbhit_linux():
+                key_pressed_detected = True
+                # getch_linux() returns string, just uppercase
+                char_val = getch_linux()
+                if char_val:
+                     char_pressed_value = char_val.upper()
+
+        if key_pressed_detected and char_pressed_value:
+            if char_pressed_value  == 'F':
                 # หยุด Print
                 print_event.clear()
                 # ขึ้น prompt ให้ผู้ใช้ใส่ FREQUENCY ใหม่
@@ -123,7 +173,7 @@ def control_thread():
                     FREQUENCY = new
                     log(f"🔄 (Config) เปลี่ยน FREQUENCY จาก '{old}' เป็น '{new}' เรียบร้อย")
 
-            elif key == b'T':
+            elif char_pressed_value  == 'T':
                 # หยุด Print
                 print_event.clear()
                 # ขึ้น prompt ให้ผู้ใช้ใส่ THRESHOLD ใหม่
@@ -137,20 +187,31 @@ def control_thread():
                 else:
                     print_event.set()
                     log(f"❌ ค่าที่ป้อนไม่ถูกต้อง: `{new}` ไม่ใช่ตัวเลขล้วน")
-            elif key == b'S':
+            elif char_pressed_value  == 'S':
                 # หยุด Print
                 print_event.clear()
                 # ขึ้น prompt ให้ผู้ใช้ใส่ SILENCE_LIMIT ใหม่
                 old = SILENCE_LIMIT
                 new = input(f"\nปัจจุบัน SILENCE_LIMIT ค่าเดิมคือ {old}  กรุณาใส่ค่า SILENCE_LIMIT ใหม่ (เฉพาะตัวเลข): ").strip()
                 print_event.set()
+                """
                 # ตรวจสอบว่าเป็นตัวเลขล้วน
                 if new.isdigit():
                     SILENCE_LIMIT = int(new)
                     log(f"🔄 (Config) เปลี่ยน SILENCE_LIMIT จาก '{old}' เป็น '{new}' เรียบร้อย")
                 else:
                     log(f"❌ ค่าที่ป้อนไม่ถูกต้อง: `{new}` ไม่ใช่ตัวเลขล้วน")
-            elif key == b'U':
+                """
+                try:
+                    # พยายามแปลงเป็น float
+                    new_float_val = float(new)
+                    SILENCE_LIMIT = new_float_val # เก็บเป็น float
+                    log(f"🔄 (Config) เปลี่ยน SILENCE_LIMIT จาก '{old}' เป็น '{SILENCE_LIMIT}' เรียบร้อย")
+                except ValueError:
+                    # หากแปลงเป็น float ไม่สำเร็จ (เช่น ผู้ใช้ใส่ตัวอักษร)
+                    log(f"❌ ค่าที่ป้อนไม่ถูกต้อง: `{new}` ไม่ใช่ตัวเลขหรือทศนิยมที่ถูกต้อง")
+
+            elif char_pressed_value  == 'U':
                 # หยุด Print
                 print_event.clear()
                 # ขึ้น prompt ให้ผู้ใช้เลือกสถานะการ UPLOAD
@@ -170,7 +231,7 @@ def control_thread():
                 else:
                     log(f"❌ ค่าที่ป้อนไม่ถูกต้อง: `{new}` โปรดพิมพ์เฉพาะ 0 หรือ 1 เท่านั้น")
                 """
-            elif key == b'E':
+            elif char_pressed_value  == 'E':
                 # หยุด Print
                 print_event.clear()
                 # ขึ้น prompt ให้ผู้ใช้เลือกโหมดแปลงเสียง
@@ -182,7 +243,7 @@ def control_thread():
                     log(f"🔄 (Config) เปลี่ยน TRANSCRIBE_ENGINE ระบบแปลงเสียงจาก '{old}' เป็น '{new}' เรียบร้อย")
                 else:
                     log(f"❌ ค่าที่ป้อนไม่ถูกต้อง: `{new}` โปรดพิมพ์ assemblyai, azure, google, ibm, speechmatics, random หรือ alternate เท่านั้น")
-            elif key == b'A':
+            elif char_pressed_value  == 'A':
                 # หยุด Print
                 print_event.clear()
                 # ขึ้น prompt ให้ผู้ใช้เลือกการทำ Audio Pre Process
@@ -488,7 +549,8 @@ def transcribe_audio_speechmatics(filepath, duration, engine_used):
     config_payload = {
         "type": "transcription",
         "transcription_config": {
-            "language": f"{SPEECHMATICS_LANGUAGE_CODE}"
+            "language": f"{SPEECHMATICS_LANGUAGE_CODE}",
+            "operating_point": f"{SPEECHMATICS_OPERATING_POINT}"
             # ถ้าต้องการติวเพิ่ม เช่น operating_point, diarization ฯลฯ ให้ใส่ตรงนี้
         }
     }
