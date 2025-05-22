@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: May 18, 2025 at 02:29 AM
+-- Generation Time: May 22, 2025 at 10:07 PM
 -- Server version: 10.11.11-MariaDB-0+deb12u1
 -- PHP Version: 8.4.5
 
@@ -46,7 +46,28 @@ CREATE TABLE `records` (
   `created_at` datetime DEFAULT current_timestamp(),
   `frequency` varchar(20) DEFAULT NULL,
   `station` varchar(50) DEFAULT NULL,
-  `duration` float DEFAULT NULL
+  `duration` float DEFAULT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  `drive_url` varchar(512) DEFAULT NULL,
+  `local_path` varchar(255) DEFAULT NULL,
+  `file_location_type` enum('local','drive','archived') NOT NULL DEFAULT 'local'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `telegram_notifications_config`
+--
+
+CREATE TABLE `telegram_notifications_config` (
+  `id` int(11) NOT NULL,
+  `keyword` varchar(255) NOT NULL,
+  `bot_token` varchar(255) NOT NULL,
+  `chat_id` varchar(255) NOT NULL,
+  `custom_message_prefix` text DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
@@ -66,6 +87,13 @@ ALTER TABLE `records`
   ADD PRIMARY KEY (`id`);
 
 --
+-- Indexes for table `telegram_notifications_config`
+--
+ALTER TABLE `telegram_notifications_config`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `unique_keyword_chat` (`keyword`,`chat_id`);
+
+--
 -- AUTO_INCREMENT for dumped tables
 --
 
@@ -73,7 +101,13 @@ ALTER TABLE `records`
 -- AUTO_INCREMENT for table `records`
 --
 ALTER TABLE `records`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1;
+
+--
+-- AUTO_INCREMENT for table `telegram_notifications_config`
+--
+ALTER TABLE `telegram_notifications_config`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
