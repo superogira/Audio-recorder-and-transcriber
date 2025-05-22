@@ -10,6 +10,7 @@
   "ibm_language_code": "en-US_BroadbandModel",
   "speechmatics_api_key": "xxxxxxxxxx",
   "speechmatics_language": "th",
+  "speechmatics_operating_point": "standard",
   "frequency": "",
   "station": "E25WOP",
   "threshold": 550,
