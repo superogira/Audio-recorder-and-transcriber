@@ -1,0 +1,8 @@
+pyaudio
+pydub
+numpy
+requests
+azure-cognitiveservices-speech
+google-cloud-speech
+ibm-watson
+ibm-cloud-sdk-core
