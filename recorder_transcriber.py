@@ -6,7 +6,7 @@ import os
 import time
 import threading
 import queue
-from datetime import datetime
+from datetime import datetime, time as dt_time
 import requests
 import json
 import random
@@ -66,6 +66,8 @@ IBM_URL = config.get("ibm_url", "")
 # ดึงการตั้งค่าจากไฟล์ recorder_config.json
 FREQUENCY = config.get("frequency","") # ความถี่วิทยุที่ทำการบันทึกเสียงมา
 STATION = config.get("station","") # สถานี หรือ นามเรียกขาน ของผู้บันทึกเสียง
+RECORDING_SCHEDULE_ENABLED = config.get("recording_schedule_enabled", False) # ค่า default คือ False (ไม่ใช้ตารางเวลา)
+RECORDING_SCHEDULE = config.get("recording_schedule", []) # ค่า default คือ array ว่าง
 THRESHOLD = config.get("threshold", 500) # ความดังต้องเกินกว่า ถึงจะเริ่มบันทึกเสียง
 RECORD_SECONDS = config.get("record_length",60) # ระยะเวลาสูงสุดที่จะบันทึกได้
 SILENCE_LIMIT = config.get("silence_limit", 1) # ถ้าเงียบเกินกว่า * วินาที ให้หยุดบันทึกเสียง
@@ -100,6 +102,37 @@ def log(msg):
         print(f"{now} {msg}")
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(f"{now} {msg}\n")
+
+# ระบบบ Schedule
+def is_within_scheduled_time(schedule_list):
+    """
+    ตรวจสอบว่าเวลาปัจจุบันอยู่ในช่วงเวลาใดๆ ที่กำหนดใน schedule_list หรือไม่
+    schedule_list คือ array ของ dictionaries ที่มี "start_time" และ "end_time"
+    """
+    if not schedule_list: # ถ้าไม่มีตารางเวลาเลย ก็ถือว่าอยู่นอกตาราง
+        return False
+
+    now_time = datetime.now().time() # เวลาปัจจุบัน (เฉพาะส่วนเวลา)
+
+    for schedule_item in schedule_list:
+        try:
+            start_h, start_m = map(int, schedule_item.get("start_time", "00:00").split(':'))
+            end_h, end_m = map(int, schedule_item.get("end_time", "23:59").split(':'))
+
+            start_dt_time = dt_time(start_h, start_m)
+            end_dt_time = dt_time(end_h, end_m)
+
+            if start_dt_time <= end_dt_time:
+                # กรณีที่ช่วงเวลาไม่ข้ามวัน (เช่น 08:00 - 17:00)
+                if start_dt_time <= now_time <= end_dt_time:
+                    return True
+            else: # กรณีที่ช่วงเวลาข้ามวัน (เช่น 22:00 - 02:00)
+                if now_time >= start_dt_time or now_time <= end_dt_time:
+                    return True
+        except ValueError:
+            log(f"⚠️ รูปแบบเวลาใน schedule ไม่ถูกต้อง: {schedule_item}")
+            continue # ข้ามรายการนี้ไป แล้วตรวจสอบรายการถัดไป
+    return False
 
 # ฟังก์ชันสำหรับ non-blocking keyboard input บน Linux/macOS
 if platform.system() != "Windows":
@@ -747,15 +780,45 @@ if __name__ == "__main__":
             fp2 = fp
         audio_queue.put((fp2, dur))
 
+    log_waiting_message = True # ตัวแปรสำหรับควบคุมการ log ข้อความ "รอช่วงเวลาบันทึก..."
+
     while True:
-        result = record_until_silent()
-        if result:
-            fp, dur = result
-            # เรียก thread ใหม่ให้ทันที ไม่ต้องรอ
-            threading.Thread(
-                target=schedule_task,
-                args=(fp, dur),
-                daemon=True
-            ).start()
-        # เลือกจะใส่ sleep น้อยๆ เพื่อไม่ให้ loop เต็มเร็วเกินไป
-        time.sleep(0.1)
+        if RECORDING_SCHEDULE_ENABLED: # ถ้าเปิดใช้งานตารางเวลา
+            if is_within_scheduled_time(RECORDING_SCHEDULE):
+                if not log_waiting_message: # ถ้าก่อนหน้านี้อยู่นอกเวลา แล้วเพิ่งเข้าเวลา
+                    log("🟢 เข้าสู่ช่วงเวลาที่กำหนด เริ่มการบันทึก...")
+                    log_waiting_message = True # รีเซ็ตเพื่อให้ log "รอ..." ได้อีกครั้งเมื่อออกนอกเวลา
+
+                result = record_until_silent()
+                if result:
+                    fp, dur = result
+                    # เรียก thread ใหม่ให้ทันที ไม่ต้องรอ
+                    threading.Thread(
+                        target=schedule_task,
+                        args=(fp, dur),
+                        daemon=True
+                    ).start()
+                # เลือกจะใส่ sleep น้อยๆ เพื่อไม่ให้ loop เต็มเร็วเกินไป
+                time.sleep(0.1)
+            else:
+                if log_waiting_message: # Log ข้อความนี้แค่ครั้งเดียวเมื่ออยู่นอกเวลา
+                    current_time_str = datetime.now().strftime("%H:%M:%S")
+                    log(f"⏳ เวลาปัจจุบัน {current_time_str} อยู่นอกช่วงเวลาที่กำหนดไว้ในตาราง ({len(RECORDING_SCHEDULE)} ช่วง) กำลังรอ...")
+                    log_waiting_message = False
+                time.sleep(30) # หน่วงเวลานานขึ้นเมื่ออยู่นอกตาราง (เช่น 30 วินาที) เพื่อลดการใช้ CPU
+        else: # ถ้าไม่ได้เปิดใช้งานตารางเวลา ก็ทำงานตามปกติ
+            if not log_waiting_message: # ถ้าก่อนหน้านี้อยู่นอกเวลา (กรณีปิด schedule ขณะรอ)
+                log("🟢 การทำงานตามตารางเวลาถูกปิด เริ่มการบันทึกตามปกติ...")
+                log_waiting_message = True
+
+            result = record_until_silent()
+            if result:
+                fp, dur = result
+                # เรียก thread ใหม่ให้ทันที ไม่ต้องรอ
+                threading.Thread(
+                    target=schedule_task,
+                    args=(fp, dur),
+                    daemon=True
+                ).start()
+            # เลือกจะใส่ sleep น้อยๆ เพื่อไม่ให้ loop เต็มเร็วเกินไป
+            time.sleep(0.1)
