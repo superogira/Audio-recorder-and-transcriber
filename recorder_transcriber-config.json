@@ -13,6 +13,25 @@
   "speechmatics_operating_point": "standard",
   "frequency": "",
   "station": "E25WOP",
+  "recording_schedule_enabled": true,
+  "recording_schedule": [
+    {
+      "start_time": "08:00",
+      "end_time": "09:00"
+    },
+    {
+      "start_time": "12:00",
+      "end_time": "13:00"
+    },
+    {
+      "start_time": "15:00",
+      "end_time": "16:00"
+    },
+    {
+      "start_time": "18:00",
+      "end_time": "20:00"
+    }
+  ],
   "threshold": 550,
   "record_length": 60,
   "silence_limit": 0.8,
