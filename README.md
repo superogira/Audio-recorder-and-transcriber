@@ -5,6 +5,10 @@ source code ทำงานกับ Python 3.11.9 ถ้าเวอร์ช�
 ## ไปทดลองเล่นได้ที่
 [E25WOP.com](https://e25wop.com/ham_radio_recorder_transcriber/)
 ![Alt text](media/Audio-recorder-and-transcriber-web-1.png?raw=true)
+![Alt text](media/Audio-recorder-and-transcriber-web-2.png?raw=true)
+![Alt text](media/Audio-recorder-and-transcriber-web-3.png?raw=true)
+![Alt text](media/Audio-recorder-and-transcriber-web-4.png?raw=true)
+![Alt text](media/Audio-recorder-and-transcriber-web-5.png?raw=true)
 
 ## ทดลองรันบน Rasberry Pi Zero 2 W
 บน Rasberry Pi OS 64-bit สามารถใช้งานได้
