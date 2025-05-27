@@ -30,17 +30,22 @@
     {
       "start_time": "18:00",
       "end_time": "20:00"
+    },
+    {
+      "start_time": "23:00",
+      "end_time": "02:00"
     }
   ],
   "threshold": 550,
   "record_length": 60,
   "silence_limit": 0.8,
   "min_duration_sec": 3,
-  "audio_pre_processing": true,
+  "audio_pre_processing": false,
   "audio_filter": true,
   "audio_high_pass_filter": 300,
   "audio_low_pass_filter": 8000,
-  "audio_normalize": true,
+  "audio_normalize": false,
+  "mp3_bitrate": "24k",
   "save_folder": "audio_files",
   "log_file": "system.log",
   "num_workers": 10,
