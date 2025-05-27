@@ -8,7 +8,7 @@ if ($dateFrom && $dateTo) {
     $stmt = $pdo->prepare("
         SELECT DATE(created_at) AS date, source, COUNT(*) AS count
         FROM records
-        WHERE DATE(created_at) BETWEEN :from AND :to
+        WHERE created_at BETWEEN :from AND :to
         GROUP BY date, source
         ORDER BY date ASC
     ");
