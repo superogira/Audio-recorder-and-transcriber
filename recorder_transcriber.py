@@ -79,6 +79,7 @@ AUDIO_FILTER = config.get("audio_filter", False) # ปิด-เปิด ระ
 AUDIO_HIGH_PASS_FILTER = config.get("audio_high_pass_filter", 300) # ตั้งค่า Audio High Pass Filter (เสียงความถี่ สูงเกินกว่าเท่าไหร่ ถึงจะผ่านได้)
 AUDIO_LOW_PASS_FILTER = config.get("audio_low_pass_filter", 8000) # ตั้งค่า Audio Low Pass Filter (เสียงความถี่ ต่ำกว่าเท่าไหร่ ถึงจะผ่านได้)
 AUDIO_NORMALIZE = config.get("audio_normalize", False) # ปิด-เปิดระบบ ปรับระดับความดังของเสียงให้เท่า ๆ กัน
+MP3_CONVERSION_ENABLED = config.get("mp3_conversion_enabled", True) # ค่า default คือ True (เปิดใช้งาน)
 MP3_BITRATE = config.get("mp3_bitrate","24k") # bitrate ที่ใช้สำหรับการแปลงเป็น mp3
 SAVE_FOLDER = config.get("save_folder","audio_files") # โฟลเดอร์สำหรับเก็บไฟล์เสียงที่บันทึก
 LOG_FILE = config.get("log_file","system.log") # ชื่อไฟล์สำหรับเก็บ Log
@@ -164,6 +165,7 @@ def control_thread():
     global UPLOAD_ENABLED
     global TRANSCRIBE_ENGINE_MODE
     global AUDIO_PRE_PROCESSING
+    global MP3_CONVERSION_ENABLED
     """
     รันขนาบข้าง main loop เพื่ออ่านคำสั่งจาก stdin
     - หากผู้ใช้พิมพ์ F จะเข้าโหมดเปลี่ยน FREQUENCY
@@ -172,6 +174,7 @@ def control_thread():
     - หากผู้ใช้พิมพ์ U จะสลับโหมดเปิด/ปิด UPLOAD_ENABLED
     - หากผู้ใช้พิมพ์ E จะเข้าโหมดเปลี่ยน TRANSCRIBE_ENGINE_MODE
     - หากผู้ใช้พิมพ์ A จะสลับโหมดเปิด/ปิด AUDIO_PRE_PROCESSING
+    - หากผู้ใช้พิมพ์ M จะสลับโหมดเปิด/ปิด MP3 Conversion
     """
 
     is_windows = platform.system() == "Windows"
@@ -301,6 +304,15 @@ def control_thread():
                 else:
                     log(f"❌ ค่าที่ป้อนไม่ถูกต้อง: `{new}` โปรดพิมพ์เฉพาะ 0 หรือ 1 เท่านั้น")
                 """
+            elif char_pressed_value == 'M': # สมมติว่าใช้ 'M' สำหรับ MP3 Conversion
+                print_event.clear()
+                if MP3_CONVERSION_ENABLED:
+                    MP3_CONVERSION_ENABLED = False
+                else:
+                    MP3_CONVERSION_ENABLED = True
+                print_event.set()
+                log(f"🔄 (Config) การแปลงเป็น MP3 ตอนนี้ {'✅ เปิดใช้งาน' if MP3_CONVERSION_ENABLED else '❌ ปิดใช้งาน'}")
+
         time.sleep(0.1)
         # อาจขยายกรณีอื่นเช่น 'S' เปลี่ยน STATION ได้ตามต้องการ
 
@@ -897,22 +909,29 @@ def schedule_task(fp_wav, dur):
     # ฟังก์ชันเป้าหมายสำหรับ thread แปลง MP3
     def mp3_target():
         nonlocal mp3_result_path
-        try:
-            log(f"🚦 [TaskMgr] เริ่ม Thread แปลง MP3 สำหรับ: {processed_filepath_for_transcription}")
-            # ส่งชื่อไฟล์ .wav ดั้งเดิม (fp_wav) ไปเพื่อใช้เป็น base name ของไฟล์ mp3
-            mp3_result_path = convert_to_mp3_task(processed_filepath_for_transcription, os.path.basename(fp_wav))
-        except Exception as e_mp3_thread:
-            log(f"❌ [TaskMgr] Exception ใน MP3 Thread: {e_mp3_thread}")
+        if MP3_CONVERSION_ENABLED:
+            try:
+                log(f"🚦 [TaskMgr] เริ่ม Thread แปลง MP3 สำหรับ: {processed_filepath_for_transcription}")
+                # ส่งชื่อไฟล์ .wav ดั้งเดิม (fp_wav) ไปเพื่อใช้เป็น base name ของไฟล์ mp3
+                mp3_result_path = convert_to_mp3_task(processed_filepath_for_transcription, os.path.basename(fp_wav))
+            except Exception as e_mp3_thread:
+                log(f"❌ [TaskMgr] Exception ใน MP3 Thread: {e_mp3_thread}")
+        else:
+            log(f"ℹ️ [TaskMgr] การแปลงเป็น MP3 ถูกปิดใช้งาน")
+            mp3_result_path = None # ไม่มีการแปลง
 
     stt_thread = threading.Thread(target=stt_target)
-    mp3_thread = threading.Thread(target=mp3_target)
+    if MP3_CONVERSION_ENABLED:  # สร้างและเริ่ม MP3 thread ต่อเมื่อเปิดใช้งาน
+        mp3_thread = threading.Thread(target=mp3_target)
 
     stt_thread.start()
-    mp3_thread.start()
+    if mp3_thread:
+        mp3_thread.start()
 
-    log(f"⏳ [TaskMgr] รอ Thread ถอดความและแปลง MP3 ให้เสร็จสิ้นสำหรับ {os.path.basename(fp_wav)}...")
+    log(f"⏳ [TaskMgr] รอ Thread ถอดความ{ ' และแปลง MP3' if MP3_CONVERSION_ENABLED else ''} ให้เสร็จสิ้นสำหรับ {os.path.basename(fp_wav)}...")
     stt_thread.join()  # รอ STT thread จบ
-    mp3_thread.join()  # รอ MP3 thread จบ
+    if mp3_thread:
+        mp3_thread.join()  # รอ MP3 thread จบ
     log(f"🏁 [TaskMgr] Thread ทั้งสองทำงานเสร็จสิ้นสำหรับ {os.path.basename(fp_wav)}. Engine ที่ใช้: {engine_actually_used_in_stt}")
 
     # --- เมื่อทั้งสองงานเสร็จสิ้น ---
@@ -972,22 +991,33 @@ def worker(worker_id):
                 worker_id
             )
 
-            # === ลบไฟล์ WAV ที่ไม่ต้องการแล้ว (หลังจาก upload เสร็จ) ===
-            if processed_wav_to_delete and os.path.exists(processed_wav_to_delete):
-                # ลบ _processed.wav ถ้ามันถูกสร้างและไม่ใช่ไฟล์เดียวกับ original_wav_to_delete
-                if processed_wav_to_delete != original_wav_to_delete:
-                    try:
-                        os.remove(processed_wav_to_delete)
-                        log(f"[Worker {worker_id}] 🗑️ ลบไฟล์ _processed.wav: {processed_wav_to_delete}")
-                    except OSError as e:
-                        log(f"[Worker {worker_id}] ⚠️ ไม่สามารถลบไฟล์ {processed_wav_to_delete}: {e}")
+            # === การลบไฟล์ WAV ===
+            # จะลบไฟล์ WAV ก็ต่อเมื่อ
+            # 1. เปิดใช้งานการแปลง MP3 และการแปลงนั้นสำเร็จ (mp3_path มีค่า)
+            # 2. หรือ ปิดใช้งานการแปลง MP3 (ในกรณีนี้ เราจะถือว่า WAV คือไฟล์หลักที่ถูกจัดการแล้ว)
+            should_delete_wavs = (MP3_CONVERSION_ENABLED and mp3_path and os.path.exists(mp3_path)) or (not MP3_CONVERSION_ENABLED)
 
-            if original_wav_to_delete and os.path.exists(original_wav_to_delete):
-                try:
-                    os.remove(original_wav_to_delete)
-                    log(f"[Worker {worker_id}] 🗑️ ลบไฟล์ .wav ต้นฉบับ: {original_wav_to_delete}")
-                except OSError as e:
-                    log(f"[Worker {worker_id}] ⚠️ ไม่สามารถลบไฟล์ {original_wav_to_delete}: {e}")
+            if should_delete_wavs:
+                log(f"[Worker {worker_id}] เงื่อนไขการลบ WAVs เป็นจริง (MP3 Enabled: {MP3_CONVERSION_ENABLED}, MP3 Path: {mp3_path})")
+                # === ลบไฟล์ WAV ที่ไม่ต้องการแล้ว (หลังจาก upload เสร็จ) ===
+                if processed_wav_to_delete and os.path.exists(processed_wav_to_delete):
+                    # ลบ _processed.wav ถ้ามันถูกสร้างและไม่ใช่ไฟล์เดียวกับ original_wav_to_delete
+                    if processed_wav_to_delete != original_wav_to_delete:
+                        try:
+                            os.remove(processed_wav_to_delete)
+                            log(f"[Worker {worker_id}] 🗑️ ลบไฟล์ _processed.wav: {processed_wav_to_delete}")
+                        except OSError as e:
+                            log(f"[Worker {worker_id}] ⚠️ ไม่สามารถลบไฟล์ {processed_wav_to_delete}: {e}")
+
+                if original_wav_to_delete and os.path.exists(original_wav_to_delete):
+                    try:
+                        os.remove(original_wav_to_delete)
+                        log(f"[Worker {worker_id}] 🗑️ ลบไฟล์ .wav ต้นฉบับ: {original_wav_to_delete}")
+                    except OSError as e:
+                        log(f"[Worker {worker_id}] ⚠️ ไม่สามารถลบไฟล์ {original_wav_to_delete}: {e}")
+
+            else:
+                log(f"[Worker {worker_id}] ℹ️ ข้ามการลบไฟล์ WAVs (MP3 Enabled: {MP3_CONVERSION_ENABLED}, MP3 Path: {mp3_path})")
 
         except Exception as e:
             log(f"[Worker {worker_id}]❌ ERROR ใน worker ขณะจัดการ task สำหรับ {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'N/A')}: {e}")
