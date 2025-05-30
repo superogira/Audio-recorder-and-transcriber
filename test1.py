@@ -777,7 +777,7 @@ def upload_audio_and_text(original_wav_path, mp3_filepath, transcript, duration,
     log_prefix = f"[Worker {worker_id_for_log}] " if worker_id_for_log is not None else ""
 
     if not UPLOAD_ENABLED:
-        log("{log_prefix}❌☁️ ข้ามกระบวนการ Upload เนื่องด้วยการ Upload ถูกตั้งค่าปิดการใช้งาน")
+        log("f{log_prefix}❌☁️ ข้ามกระบวนการ Upload เนื่องด้วยการ Upload ถูกตั้งค่าปิดการใช้งาน")
         return
 
     source_name = get_source_name(engine_used)
@@ -826,7 +826,7 @@ def upload_audio_and_text(original_wav_path, mp3_filepath, transcript, duration,
              res = requests.post(UPLOAD_URL, data=data, timeout=30)
 
         if res.status_code == 200:
-            log("{log_prefix}☁️ อัปโหลดข้อมูลเรียบร้อย")
+            log("f{log_prefix}☁️ อัปโหลดข้อมูลเรียบร้อย")
         else:
             log(f"{log_prefix}❌ Upload error: {res.status_code} - {res.text}")
     except requests.exceptions.RequestException as e:
