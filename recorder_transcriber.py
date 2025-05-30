@@ -994,8 +994,7 @@ def worker(worker_id):
             # === การลบไฟล์ WAV ===
             # จะลบไฟล์ WAV ก็ต่อเมื่อ
             # 1. เปิดใช้งานการแปลง MP3 และการแปลงนั้นสำเร็จ (mp3_path มีค่า)
-            # 2. หรือ ปิดใช้งานการแปลง MP3 (ในกรณีนี้ เราจะถือว่า WAV คือไฟล์หลักที่ถูกจัดการแล้ว)
-            should_delete_wavs = (MP3_CONVERSION_ENABLED and mp3_path and os.path.exists(mp3_path)) or (not MP3_CONVERSION_ENABLED)
+            should_delete_wavs = MP3_CONVERSION_ENABLED and mp3_path and os.path.exists(mp3_path)
 
             if should_delete_wavs:
                 log(f"[Worker {worker_id}] เงื่อนไขการลบ WAVs เป็นจริง (MP3 Enabled: {MP3_CONVERSION_ENABLED}, MP3 Path: {mp3_path})")
@@ -1017,7 +1016,15 @@ def worker(worker_id):
                         log(f"[Worker {worker_id}] ⚠️ ไม่สามารถลบไฟล์ {original_wav_to_delete}: {e}")
 
             else:
-                log(f"[Worker {worker_id}] ℹ️ ข้ามการลบไฟล์ WAVs (MP3 Enabled: {MP3_CONVERSION_ENABLED}, MP3 Path: {mp3_path})")
+                log_reason = ""
+                if not MP3_CONVERSION_ENABLED:
+                    log_reason = "การแปลง MP3 ถูกปิดใช้งาน"
+                elif not (mp3_path and os.path.exists(mp3_path)):
+                    log_reason = "การแปลง MP3 ล้มเหลว หรือไม่พบไฟล์ MP3"
+                else:
+                    log_reason = "เงื่อนไขอื่น (โปรดตรวจสอบ)"
+                log(f"[Worker {worker_id}] ℹ️ ข้ามการลบไฟล์ WAVs. เนื่องจาก: {log_reason}")
+                # log(f"[Worker {worker_id}] ℹ️ ข้ามการลบไฟล์ WAVs (MP3 Enabled: {MP3_CONVERSION_ENABLED}, MP3 Path: {mp3_path})")
 
         except Exception as e:
             log(f"[Worker {worker_id}]❌ ERROR ใน worker ขณะจัดการ task สำหรับ {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'N/A')}: {e}")
