@@ -49,6 +49,8 @@ ASSEMBLYAI_TRANSCRIPT_URL = "https://api.assemblyai.com/v2/transcript"
 SPEECH_KEY = config.get("azure_speech_key","") # Key สำหรับเรียก API
 SERVICE_REGION = config.get("azure_service_region","") # Location หรือ Region สำหรับเรียก Resource
 LANGUAGE = config.get("azure_language","") # ภาษาที่จะถอดเสียง
+TTS_RESPONSES_ENABLED = config.get("tts_responses_enabled", False)
+TTS_RESPONSES_CONFIG = config.get("tts_responses", [])
 
 # === ตั้งค่า Google Cloud API ===
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = config.get("google_credentials","") # ตำแหน่งและชื่อไฟล์ Credentials
@@ -753,6 +755,76 @@ def transcribe_audio_speechmatics_and_get_text(filepath_wav):
     return text
 
 
+def speak_text_azure(text_to_speak, voice_name=None):
+    """
+    ใช้ Azure TTS เพื่อแปลงข้อความเป็นเสียงและเล่นออกทางลำโพง
+    """
+    if not SPEECH_KEY or not SERVICE_REGION:
+        log("⚠️ ไม่ได้ตั้งค่า Azure Speech Key หรือ Region สำหรับ TTS")
+        return
+
+    try:
+        speech_config = speechsdk.SpeechConfig(subscription=SPEECH_KEY, region=SERVICE_REGION)
+
+        # ตั้งค่าภาษาสำหรับเสียงพูด (อาจจะแตกต่างจากภาษา STT ได้ แต่ควรเป็นภาษาเดียวกับ response_text)
+        speech_config.speech_synthesis_language = "th-TH"  # หรือดึงจาก config ถ้าต้องการความยืดหยุ่น
+
+        if voice_name:
+            speech_config.speech_synthesis_voice_name = voice_name
+        else:
+            # ถ้าไม่ได้ระบุ voice_name สามารถตั้งค่า default voice ที่นี่ได้
+            speech_config.speech_synthesis_voice_name = "th-TH-PremwadeeNeural"  # ตัวอย่างเสียงผู้หญิง
+            # speech_config.speech_synthesis_voice_name = "th-TH-NiwatNeural" # ตัวอย่างเสียงผู้ชาย
+
+        # เล่นเสียงออกทาง default speaker
+        # หากต้องการบันทึกเป็นไฟล์ ให้ใช้ speechsdk.AudioConfig(filename="path/to/output.wav")
+        # แล้วใช้ speech_synthesizer.speak_text_async(text_to_speak).get()
+        # ในที่นี้เราจะเล่นโดยตรง
+        audio_config_playback = speechsdk.audio.AudioOutputConfig(use_default_speaker=True)
+        speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config,
+                                                         audio_config=audio_config_playback)
+
+        log(f"📢 [TTS Azure] กำลังพูด: '{text_to_speak}' (Voice: {speech_config.speech_synthesis_voice_name})")
+        result = speech_synthesizer.speak_text_async(text_to_speak).get()
+
+        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            log(f"✅ [TTS Azure] พูดข้อความสำเร็จ")
+        elif result.reason == speechsdk.ResultReason.Canceled:
+            cancellation_details = result.cancellation_details
+            log(f"❌ [TTS Azure] การสังเคราะห์เสียงถูกยกเลิก: {cancellation_details.reason}")
+            if cancellation_details.reason == speechsdk.CancellationReason.Error:
+                log(f"   รายละเอียดข้อผิดพลาด: {cancellation_details.error_details}")
+    except Exception as e:
+        log(f"❌ [TTS Azure] เกิดข้อผิดพลาดระหว่างการสังเคราะห์เสียง: {e}")
+
+
+# (ทางเลือก) ฟังก์ชันสำหรับบันทึก TTS เป็นไฟล์ .wav
+def synthesize_text_to_wav_azure(text_to_speak, output_filename, voice_name=None):
+    if not SPEECH_KEY or not SERVICE_REGION:
+        log("⚠️ ไม่ได้ตั้งค่า Azure Speech Key หรือ Region สำหรับ TTS (to file)")
+        return False
+    try:
+        speech_config = speechsdk.SpeechConfig(subscription=SPEECH_KEY, region=SERVICE_REGION)
+        speech_config.speech_synthesis_language = "th-TH"
+        if voice_name:
+            speech_config.speech_synthesis_voice_name = voice_name
+        else:
+            speech_config.speech_synthesis_voice_name = "th-TH-PremwadeeNeural"
+
+        audio_config_file = speechsdk.audio.AudioOutputConfig(filename=output_filename)
+        speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config_file)
+
+        log(f"💾 [TTS Azure] กำลังสังเคราะห์เสียง '{text_to_speak}' เป็นไฟล์: {output_filename}")
+        result = speech_synthesizer.speak_text_async(text_to_speak).get()
+
+        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            log(f"✅ [TTS Azure] สังเคราะห์เสียงเป็นไฟล์ {output_filename} สำเร็จ")
+            return True
+        # ... (จัดการ Canceled/Error เหมือนเดิม) ...
+    except Exception as e:
+        log(f"❌ [TTS Azure] เกิดข้อผิดพลาดระหว่างการสังเคราะห์เสียงเป็นไฟล์: {e}")
+    return False
+
 # --- ฟังก์ชันสำหรับแปลง MP3 (อาจจะแยกออกมาเพื่อให้เรียกใน thread) ---
 def convert_to_mp3_task(wav_path_to_convert, original_wav_basename_for_mp3_name):
     mp3_filepath_local = None
@@ -777,7 +849,7 @@ def upload_audio_and_text(original_wav_path, mp3_filepath, transcript, duration,
     log_prefix = f"[Worker {worker_id_for_log}] " if worker_id_for_log is not None else ""
 
     if not UPLOAD_ENABLED:
-        log("f{log_prefix}❌☁️ ข้ามกระบวนการ Upload เนื่องด้วยการ Upload ถูกตั้งค่าปิดการใช้งาน")
+        log(f"{log_prefix}❌☁️ ข้ามกระบวนการ Upload เนื่องด้วยการ Upload ถูกตั้งค่าปิดการใช้งาน")
         return
 
     source_name = get_source_name(engine_used)
@@ -826,7 +898,7 @@ def upload_audio_and_text(original_wav_path, mp3_filepath, transcript, duration,
              res = requests.post(UPLOAD_URL, data=data, timeout=30)
 
         if res.status_code == 200:
-            log("f{log_prefix}☁️ อัปโหลดข้อมูลเรียบร้อย")
+            log(f"{log_prefix}☁️ อัปโหลดข้อมูลเรียบร้อย")
         else:
             log(f"{log_prefix}❌ Upload error: {res.status_code} - {res.text}")
     except requests.exceptions.RequestException as e:
@@ -979,8 +1051,32 @@ def worker(worker_id):
         original_wav_to_delete, processed_wav_to_delete = task
 
         log(f"[Worker {worker_id}]  : {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}")
+        log(f"[Worker {worker_id}] 📝 ข้อความที่ถอดได้: {transcript_text}")  # แสดงข้อความที่ถอดได้
 
         try:
+            # --- ส่วนตรวจสอบ Keyword และเรียก TTS ---
+            if TTS_RESPONSES_ENABLED and transcript_text and not transcript_text.startswith(
+                    "["):  # ตรวจสอบว่าไม่ใช่ error message
+                for tts_config_item in TTS_RESPONSES_CONFIG:
+                    trigger_found = False
+                    for keyword in tts_config_item.get("trigger_keywords", []):
+                        if keyword.lower() in transcript_text.lower():  # เปรียบเทียบแบบ case-insensitive
+                            trigger_found = True
+                            break
+
+                    if trigger_found:
+                        response_to_speak = tts_config_item.get("response_text")
+                        response_voice = tts_config_item.get("response_voice")  # อาจจะเป็น None
+                        if response_to_speak:
+                            log(f"{log_prefix} 🗣️ พบ Keyword, กำลังเตรียมพูด: '{response_to_speak}'")
+                            # สร้าง thread ใหม่สำหรับ speak_text_azure เพื่อไม่ให้ block worker
+                            tts_thread = threading.Thread(target=speak_text_azure,
+                                                          args=(response_to_speak, response_voice), daemon=True)
+                            tts_thread.start()
+                            # ไม่ต้อง join tts_thread ที่นี่ เพื่อให้ worker ทำงานต่อไปได้
+                        break  # เมื่อเจอ config แรกที่ match ก็ให้ทำงานแล้วหยุดค้นหา (หรือจะให้ตอบทุกอันที่ match ก็เอา break ออก)
+            # --- สิ้นสุดส่วน TTS ---
+            
             # เรียก upload_audio_and_text โดยตรง เพราะการถอดความทำไปแล้ว
             upload_audio_and_text(
                 file_for_transcription_wav,  # path ของ wav ที่ใช้ถอดความ (อาจเป็น _processed.wav)
