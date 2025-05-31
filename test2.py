@@ -1312,6 +1312,8 @@ if __name__ == "__main__":
     p_instance = pyaudio.PyAudio() # สร้าง instance ของ PyAudio ครั้งเดียว
     try:
         while True:
+            average_signal_strength_for_task = None
+
             if RECORDING_SCHEDULE_ENABLED: # ถ้าเปิดใช้งานตารางเวลา
                 if is_within_scheduled_time(RECORDING_SCHEDULE):
                     if not log_waiting_message: # ถ้าก่อนหน้านี้อยู่นอกเวลา แล้วเพิ่งเข้าเวลา
@@ -1320,11 +1322,11 @@ if __name__ == "__main__":
 
                     result = record_until_silent(p_instance)
                     if result:
-                        fp_wav, dur = result
+                        fp_wav, dur, average_signal_strength_for_task = result
                         # เรียก thread ใหม่ให้ทันที ไม่ต้องรอ
                         threading.Thread(
                             target=schedule_task,
-                            args=(fp_wav, dur),
+                            args=(fp_wav, dur, average_signal_strength_for_task),
                             daemon=True
                         ).start()
                     # เลือกจะใส่ sleep น้อยๆ เพื่อไม่ให้ loop เต็มเร็วเกินไป
@@ -1342,11 +1344,11 @@ if __name__ == "__main__":
 
                 result = record_until_silent(p_instance)
                 if result:
-                    fp, dur = result
+                    fp, dur, average_signal_strength_for_task = result
                     # เรียก thread ใหม่ให้ทันที ไม่ต้องรอ
                     threading.Thread(
                         target=schedule_task,
-                        args=(fp, dur),
+                        args=(fp, dur, average_signal_strength_for_task),
                         daemon=True
                     ).start()
                 # เลือกจะใส่ sleep น้อยๆ เพื่อไม่ให้ loop เต็มเร็วเกินไป
