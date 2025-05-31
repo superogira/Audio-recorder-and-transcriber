@@ -545,7 +545,7 @@ def setup_tinysa_for_measurement(ser, center_freq_hz, sweep_points, repeat_inter
         return False
     try:
         if tinysa_is_paused:  # ถ้า pause อยู่ ให้ resume ก่อนตั้งค่า
-            send_tinysa_command(ser, b"resume\r\n")
+            send_tinysa_command(ser, "resume\r\n")
             tinysa_is_paused = False
             log(f"📡 [TinySA] Resumed for setup.")
 
@@ -560,13 +560,13 @@ def setup_tinysa_for_measurement(ser, center_freq_hz, sweep_points, repeat_inter
         freq_start_hz = center_freq_hz - (span_hz // 2)
         freq_end_hz = center_freq_hz + (span_hz // 2)
 
-        send_tinysa_command(ser, f"sweep {freq_start_hz} {freq_end_hz} {sweep_points}\r\n".encode())
+        send_tinysa_command(ser, f"sweep {freq_start_hz} {freq_end_hz} {sweep_points}\r\n")
 
         # กำหนด interval
-        send_tinysa_command(ser, f"repeat {repeat_interval_ms}\r\n".encode())
+        send_tinysa_command(ser, f"repeat {repeat_interval_ms}\r\n")
 
         # กำหนด Marker 1 ไปยังความถี่กลาง
-        send_tinysa_command(ser, f"marker 1 {center_freq_hz}\r\n".encode())
+        send_tinysa_command(ser, f"marker 1 {center_freq_hz}\r\n")
 
         log(f"✅ [TinySA] Setup complete for {center_freq_hz / 1_000_000:.3f} MHz.")
         return True
@@ -587,7 +587,7 @@ def get_signal_strength_tinysa(ser):
             log(f"📡 [TinySA] Resumed for reading signal strength.")
             time.sleep(TINYSA_REPEAT_INTERVAL / 1000 * 2)  # รอให้มีการ sweep อย่างน้อยหนึ่งรอบหลังจาก resume
 
-        raw_response = send_tinysa_command(ser, b"marker\r\n", read_response=True,
+        raw_response = send_tinysa_command(ser, "marker\r\n", read_response=True,
                                            delay_after_command=0.2)  # เพิ่ม delay เล็กน้อย
 
         if raw_response:
@@ -625,14 +625,14 @@ def get_signal_strength_tinysa(ser):
 def pause_tinysa(ser):
     global tinysa_is_paused
     if ser and ser.is_open and not tinysa_is_paused:
-        send_tinysa_command(ser, b"pause\r\n")
+        send_tinysa_command(ser, "pause\r\n")
         tinysa_is_paused = True
         log("⏸️ [TinySA] Paused.")
 
 def resume_tinysa(ser):
     global tinysa_is_paused
     if ser and ser.is_open and tinysa_is_paused:
-        send_tinysa_command(ser, b"resume\r\n")
+        send_tinysa_command(ser, "resume\r\n")
         tinysa_is_paused = False
         log("▶️ [TinySA] Resumed.")
 
@@ -1483,7 +1483,9 @@ if __name__ == "__main__":
         if p_instance: # ตรวจสอบว่า ถูกสร้างแล้ว
             p_instance.terminate() # <--- ปิด PyAudio object ครั้งเดียวเมื่อจบโปรแกรม
         if tinysa_serial_connection and tinysa_serial_connection.is_open:
-            send_tinysa_command(tinysa_serial_connection, b"resume\r\n")  # Resume ก่อนปิด port เพื่อไม่ให้ค้าง
+            # send_tinysa_command(tinysa_serial_connection, "resume\r\n")  # Resume ก่อนปิด port เพื่อไม่ให้ค้าง
+            # ไม่จำเป็นต้อง resume ก่อน close โดยทั่วไป, แต่ถ้ามีปัญหากับอุปกรณ์บางรุ่นอาจจะลองได้
+            # send_tinysa_command(tinysa_serial_connection, "resume\r\n", expect_prompt=False) # ไม่ต้องคาดหวัง prompt ตอนจะปิดแล้ว
             tinysa_serial_connection.close()
             log("✅ [TinySA] Disconnected from TinySA.")
         log("✅ ระบบปิดเรียบร้อย")
