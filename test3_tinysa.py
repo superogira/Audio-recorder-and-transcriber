@@ -1272,11 +1272,23 @@ def worker(worker_id):
                     trigger_keywords = tts_config_item.get("trigger_keywords", [])
                     except_keywords_list = tts_config_item.get("except_keywords", [])  # ดึงคำที่ยกเว้น
 
+                    # --- กำหนด Keyword เฉพาะสำหรับการรายงานระดับสัญญาณ ---
+                    signal_report_keywords = ["ทดสอบระดับสัญญา", "ทดสอบสัญญา"]
+                    # --- สิ้นสุดการกำหนด Keyword เฉพาะ ---
+
                     found_trigger = False
+                    triggered_keyword_for_signal_report = None  # เก็บ keyword ที่ trigger การรายงานสัญญาณ
+
                     for keyword in trigger_keywords:
-                        if keyword.lower() in transcript_text.lower():  # เปรียบเทียบแบบ case-insensitive
+                        if keyword.lower() in transcript_text.lower():
                             found_trigger = True
-                            break
+                            # ตรวจสอบว่าเป็น keyword ที่ต้องการให้รายงานระดับสัญญาณหรือไม่
+                            for sr_keyword in signal_report_keywords:
+                                if sr_keyword.lower() == keyword.lower():  # ตรวจสอบ keyword ที่ trigger ตรงๆ
+                                    triggered_keyword_for_signal_report = sr_keyword
+                                    break
+                            if triggered_keyword_for_signal_report:  # ถ้าเจอ keyword สำหรับรายงานสัญญาณ ก็ไม่ต้องเช็ค trigger_keywords อื่น
+                                break
 
                     if found_trigger:
                         # ถ้าเจอ Keyword หลักแล้ว ให้ตรวจสอบคำที่ยกเว้น
@@ -1292,14 +1304,17 @@ def worker(worker_id):
                             response_to_speak_base = tts_config_item.get("response_text")
                             response_voice = tts_config_item.get("response_voice")
 
-                            # --- เพิ่มค่าความแรงสัญญาณเข้าไปในข้อความตอบกลับ ---
                             final_response_to_speak = response_to_speak_base
-                            if avg_signal_db_from_queue is not None and "{signal_db}" in final_response_to_speak:
-                                final_response_to_speak = final_response_to_speak.replace("{signal_db}",
-                                                                                          f"{avg_signal_db_from_queue:.1f}")
-                            elif avg_signal_db_from_queue is not None:  # ถ้าไม่มี placeholder ก็ต่อท้าย (หรือปรับ logic ตามต้องการ)
-                                final_response_to_speak += f" ระดับสัญญาณเฉลี่ย {avg_signal_db_from_queue:.1f} ดีบี"
-                            # --- สิ้นสุดการเพิ่มค่าความแรงสัญญาณ ---
+
+                            # --- ตรวจสอบว่าจะเพิ่มข้อมูลระดับสัญญาณหรือไม่ ---
+                            # เพิ่มข้อมูลระดับสัญญาณก็ต่อเมื่อ Keyword ที่ trigger นั้นอยู่ในรายการ signal_report_keywords
+                            if triggered_keyword_for_signal_report and avg_signal_db_from_queue is not None:
+                                if "{signal_db}" in final_response_to_speak:
+                                    final_response_to_speak = final_response_to_speak.replace("{signal_db}",
+                                                                                              f"{avg_signal_db_from_queue:.1f}")
+                                else:  # ถ้าไม่มี placeholder ก็ต่อท้าย (สำหรับกรณี "ทดสอบระดับสัญญาณ" เท่านั้น)
+                                    final_response_to_speak += f" ระดับสัญญาณเฉลี่ย {avg_signal_db_from_queue:.1f} ดีบีเอ็ม"
+                            # --- สิ้นสุดการตรวจสอบ ---
 
                         if final_response_to_speak:
                             log(f"[Worker {worker_id}] 🗣️ พบ Keyword, กำลังเตรียมพูด: '{final_response_to_speak}'")
