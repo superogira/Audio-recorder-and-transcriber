@@ -49,7 +49,7 @@ ASSEMBLYAI_TRANSCRIPT_URL = "https://api.assemblyai.com/v2/transcript"
 SPEECH_KEY = config.get("azure_speech_key","") # Key สำหรับเรียก API
 SERVICE_REGION = config.get("azure_service_region","") # Location หรือ Region สำหรับเรียก Resource
 LANGUAGE = config.get("azure_language","") # ภาษาที่จะถอดเสียง
-TTS_RESPONSES_ENABLED = config.get("tts_responses_enabled", False)
+AZURE_TTS_RESPONSES_ENABLED = config.get("azure_tts_responses_enabled", False)
 TTS_RESPONSES_CONFIG = config.get("tts_responses", [])
 
 # === ตั้งค่า Google Cloud API ===
@@ -1055,28 +1055,43 @@ def worker(worker_id):
 
         try:
             # --- ส่วนตรวจสอบ Keyword และเรียก TTS ---
-            if TTS_RESPONSES_ENABLED and transcript_text and not transcript_text.startswith(
-                    "["):  # ตรวจสอบว่าไม่ใช่ error message
+            if AZURE_TTS_RESPONSES_ENABLED and transcript_text and not transcript_text.startswith("["):  # ตรวจสอบว่าไม่ใช่ error message
                 for tts_config_item in TTS_RESPONSES_CONFIG:
-                    trigger_found = False
-                    for keyword in tts_config_item.get("trigger_keywords", []):
+                    trigger_keywords = tts_config_item.get("trigger_keywords", [])
+                    except_keywords_list = tts_config_item.get("except_keywords", [])  # ดึงคำที่ยกเว้น
+
+                    found_trigger = False
+                    for keyword in trigger_keywords:
                         if keyword.lower() in transcript_text.lower():  # เปรียบเทียบแบบ case-insensitive
-                            trigger_found = True
+                            found_trigger = True
                             break
 
-                    if trigger_found:
-                        response_to_speak = tts_config_item.get("response_text")
-                        response_voice = tts_config_item.get("response_voice")  # อาจจะเป็น None
-                        if response_to_speak:
-                            log(f"{log_prefix} 🗣️ พบ Keyword, กำลังเตรียมพูด: '{response_to_speak}'")
+                    if found_trigger:
+                        # ถ้าเจอ Keyword หลักแล้ว ให้ตรวจสอบคำที่ยกเว้น
+                        found_exception = False
+                        if except_keywords_list:  # ตรวจสอบว่ามีรายการคำยกเว้นหรือไม่
+                            for except_word in except_keywords_list:
+                                if except_word.lower() in transcript_text.lower():
+                                    found_exception = True
+                                    log(f"[Worker {worker_id}] ℹ️ พบ Keyword '{keyword}' แต่ก็พบคำยกเว้น '{except_word}' ด้วย จึงไม่ทำการตอบกลับ TTS")
+                                    break  # ออกจาก loop ของ except_keywords
+
+                        if not found_exception:  # ถ้าไม่พบคำที่ยกเว้นใดๆ
+                            response_to_speak_base = tts_config_item.get("response_text")
+                            response_voice = tts_config_item.get("response_voice")  # อาจจะเป็น None
+
+                            final_response_to_speak = response_to_speak_base
+
+                        if final_response_to_speak:
+                            log(f"[Worker {worker_id}] 🗣️ พบ Keyword, กำลังเตรียมพูด: '{final_response_to_speak}'")
                             # สร้าง thread ใหม่สำหรับ speak_text_azure เพื่อไม่ให้ block worker
                             tts_thread = threading.Thread(target=speak_text_azure,
-                                                          args=(response_to_speak, response_voice), daemon=True)
+                                                          args=(final_response_to_speak, response_voice), daemon=True)
                             tts_thread.start()
                             # ไม่ต้อง join tts_thread ที่นี่ เพื่อให้ worker ทำงานต่อไปได้
                         break  # เมื่อเจอ config แรกที่ match ก็ให้ทำงานแล้วหยุดค้นหา (หรือจะให้ตอบทุกอันที่ match ก็เอา break ออก)
             # --- สิ้นสุดส่วน TTS ---
-            
+
             # เรียก upload_audio_and_text โดยตรง เพราะการถอดความทำไปแล้ว
             upload_audio_and_text(
                 file_for_transcription_wav,  # path ของ wav ที่ใช้ถอดความ (อาจเป็น _processed.wav)
