@@ -75,6 +75,10 @@ TINYSA_ENABLED = config.get("tinysa_enabled", True)
 TINYSA_SERIAL_PORT = '/dev/ttyACM0'  # <<<< แก้ไขเป็นพอร์ตที่ถูกต้องของ TinySA บน Pi ของคุณ
 TINYSA_BAUDRATE = 115200            # Baudrate ปกติของ TinySA คือ 115200 หรือตรวจสอบจากคู่มือ
 TARGET_FREQUENCY_HZ = 145200000    # ความถี่ที่คุณต้องการวัด (Hz)
+TINYSA_SWEEP_POINTS = config.get("tinysa_sweep_points", 40) # จำนวนจุดในการ sweep
+TINYSA_REPEAT_INTERVAL = config.get("tinysa_repeat_interval", 5) # ms (ตามที่คุณระบุ)
+# อาจจะต้องมีตัวแปรเก็บสถานะของ TinySA (paused/resumed)
+tinysa_is_paused = True # เริ่มต้นให้ pause ไว้ก่อน
 # คุณอาจจะต้องมีค่าอื่นๆ เช่น RBW, Attenuation ที่เหมาะสมกับการวัดของคุณ
 
 # ดึงการตั้งค่าจากไฟล์ recorder_config.json
@@ -330,13 +334,14 @@ def control_thread():
 
 # ระบบบันทึกเสียง
 def record_until_silent(pyaudio_instance, tinysa_ser=None):
+    global tinysa_is_paused  # เพื่อให้สามารถอ้างอิงและแก้ไขสถานะได้
     stream = None  # <<<< กำหนดค่าเริ่มต้นเป็น None
     frames = []  # <<<< ย้าย frames มาประกาศที่นี่เพื่อให้ finally เห็น
     recording = False
     silence_chunks = 0 # นับจำนวน chunks ที่เงียบติดต่อกันระหว่างการบันทึก
 
     signal_strengths_db = []  # List สำหรับเก็บค่าความแรงสัญญาณ
-    last_tinysa_check_time = time.time()
+    last_tinysa_check_time = 0 # ตั้งเป็น 0 เพื่อให้เช็คครั้งแรกเลยเมื่อเริ่มอัด
 
     try:
         stream = pyaudio_instance.open(format=pyaudio.paInt16,
@@ -344,6 +349,11 @@ def record_until_silent(pyaudio_instance, tinysa_ser=None):
                         rate=RATE,
                         input=True,
                         frames_per_buffer=CHUNK)
+
+        # --- เมื่อเริ่มรอฟังเสียง ให้แน่ใจว่า TinySA pause อยู่ (ถ้าจะควบคุมแบบนี้) ---
+        # หรือจะ resume ตอนเริ่มอัดเลยก็ได้
+        if TINYSA_ENABLED and tinysa_ser and not tinysa_is_paused:  # ถ้าเปิดใช้งาน TinySA และมันยังไม่ pause
+            pause_tinysa(tinysa_ser)
 
         log(f"📡 รอฟังเสียง ({FREQUENCY}) ...")
 
@@ -366,43 +376,35 @@ def record_until_silent(pyaudio_instance, tinysa_ser=None):
             if print_event.is_set():
                 print(f"️🎚️ Amplitude ({FREQUENCY}) : {amplitude:.2f}", end='\r')
 
-            # --- อ่านค่าความแรงสัญญาณจาก TinySA เป็นระยะ ---
-            if tinysa_ser and recording and (time.time() - last_tinysa_check_time >= 1.0): # อ่านทุกๆ 1 วินาที (ปรับได้)
-                # แปลง FREQUENCY (ถ้าเป็น SCAN หรือ string อื่นๆ) เป็น Hz ก่อน
-                current_monitoring_freq_hz_for_tinysa = None
-                try:
-                    # สมมติว่า FREQUENCY ถ้าไม่ใช่ SCAN จะเป็นตัวเลข MHz
-                    if FREQUENCY.upper() != "SCAN":
-                        current_monitoring_freq_hz_for_tinysa = int(float(FREQUENCY) * 1_000_000)
-                        # อาจจะต้อง setup TinySA ใหม่ถ้าความถี่เปลี่ยน
-                        # setup_tinysa_for_measurement(tinysa_ser, current_monitoring_freq_hz_for_tinysa)
-                    else:  # ถ้าเป็น SCAN ก็ใช้ค่า default จาก config
-                        current_monitoring_freq_hz_for_tinysa = TARGET_FREQUENCY_HZ
-                        # ไม่ต้อง setup ซ้ำถ้าความถี่ไม่เปลี่ยน
-                except ValueError:
-                    current_monitoring_freq_hz_for_tinysa = TARGET_FREQUENCY_HZ
-
-                # ถ้าความถี่ที่ใช้ setup TinySA ครั้งล่าสุดไม่ตรงกับความถี่ปัจจุบัน ให้ setup ใหม่
-                # (ส่วนนี้อาจจะต้องมีตัวแปร global หรือ attribute ของ class เก็บความถี่ที่ setup TinySA ล่าสุด)
-                # if tinysa_ser.last_configured_freq != current_monitoring_freq_hz_for_tinysa:
-                #    setup_tinysa_for_measurement(tinysa_ser, current_monitoring_freq_hz_for_tinysa)
-                #    tinysa_ser.last_configured_freq = current_monitoring_freq_hz_for_tinysa
-
-                strength = get_signal_strength_tinysa(tinysa_ser)
-                if strength is not None:
-                    signal_strengths_db.append(strength)
-                last_tinysa_check_time = time.time()
-            # --- สิ้นสุดการอ่านค่าความแรงสัญญาณ ---
-
             if not recording:
                 if amplitude > THRESHOLD:
                     log("🎙️ เริ่มอัด...")
                     recording = True
                     frames.append(data)  # เพิ่ม chunk แรกที่ทำให้เริ่มอัดเสียง
                     silence_chunks = 0  # รีเซ็ตเมื่อเริ่มอัดและมีเสียง
-                # ถ้ายังไม่ได้อัดและเสียงเบา ก็วนรอต่อไป
+                    # ถ้ายังไม่ได้อัดและเสียงเบา ก็วนรอต่อไป
+                    # --- เมื่อเริ่มอัด ให้ Resume TinySA และวัดค่าครั้งแรก ---
+                    if TINYSA_ENABLED and tinysa_ser:
+                        resume_tinysa(tinysa_ser)
+                        # อาจจะ setup ใหม่ถ้าความถี่เปลี่ยน (ถ้า FREQUENCY เปลี่ยนได้)
+                        current_monitoring_freq_hz_for_tinysa = int(
+                            float(FREQUENCY) * 1_000_000) if FREQUENCY.upper() != "SCAN" else TARGET_FREQUENCY_HZ
+                        setup_tinysa_for_measurement(tinysa_ser, current_monitoring_freq_hz_for_tinysa,
+                                                     TINYSA_SWEEP_POINTS, TINYSA_REPEAT_INTERVAL)
+
+                        time.sleep(TINYSA_REPEAT_INTERVAL / 1000 * 2)  # รอ sweep แรก
+                        strength = get_signal_strength_tinysa(tinysa_ser)
+                        if strength is not None:
+                            signal_strengths_db.append(strength)
+                        last_tinysa_check_time = time.time()
             else:  # recording is True (กำลังอัดเสียง)
                 frames.append(data)  # เพิ่ม chunk ปัจจุบันเข้าไปใน frames
+
+                if TINYSA_ENABLED and tinysa_ser and not tinysa_is_paused and (time.time() - last_tinysa_check_time >= 1.0):  # อ่านทุก 1 วินาที
+                    strength = get_signal_strength_tinysa(tinysa_ser)
+                    if strength is not None:
+                        signal_strengths_db.append(strength)
+                    last_tinysa_check_time = time.time()
 
                 if amplitude <= THRESHOLD:  # ถ้า chunk ปัจจุบันเสียงเบา
                     silence_chunks += 1
@@ -419,6 +421,10 @@ def record_until_silent(pyaudio_instance, tinysa_ser=None):
                 stopped_by_length = len(frames) >= max_chunks
 
                 if stopped_by_silence or stopped_by_length:
+                    # log(f"🛑 หยุดอัด (...พร้อมข้อมูลสัญญาณถ้ามี...)")
+                    # --- เมื่อหยุดอัด ให้ Pause TinySA ---
+                    if TINYSA_ENABLED and tinysa_ser:
+                        pause_tinysa(tinysa_ser)
                     if stopped_by_length and not stopped_by_silence:
                         log(f"🛑 หยุดอัด (ถึงขีดจำกัดความยาวสูงสุด {max_record_sec:.1f} วินาที)")
                     elif stopped_by_silence and not stopped_by_length:
@@ -463,7 +469,7 @@ def record_until_silent(pyaudio_instance, tinysa_ser=None):
     average_signal_db = None
     if signal_strengths_db:
         average_signal_db = sum(signal_strengths_db) / len(signal_strengths_db)
-        log(f"📊 ค่าเฉลี่ยความแรงสัญญาณระหว่างบันทึก: {average_signal_db:.2f} dB")
+        log(f"📊 ค่าเฉลี่ยความแรงสัญญาณระหว่างบันทึก: {average_signal_db:.2f} dBm")
 
     try:
         wf = wave.open(filepath, 'wb')
@@ -473,93 +479,162 @@ def record_until_silent(pyaudio_instance, tinysa_ser=None):
         wf.writeframes(b''.join(frames))
         wf.close()
         log(f"💾 บันทึกไฟล์เสียง ({duration:.2f} วินาที) : {filepath}")
+
+        # --- หลังจบการบันทึกและคำนวณค่าเฉลี่ย ให้แน่ใจว่า TinySA pause อีกครั้ง ---
+        if TINYSA_ENABLED and tinysa_ser:
+            pause_tinysa(tinysa_ser)
+
         return filepath, duration, average_signal_db
+
     except Exception as e_write:
         log(f"❌ เกิดข้อผิดพลาดขณะบันทึกไฟล์ wave: {e_write}")
         return None
 
-def setup_tinysa_for_measurement(ser, freq_hz):
-    """ส่งคำสั่งเบื้องต้นเพื่อตั้งค่า TinySA สำหรับการวัด"""
+def send_tinysa_command(ser, command_str, read_response=False, delay_after_command=0.1):
+    """Helper function to send command and optionally read response."""
+    if not ser or not ser.is_open:
+        log(f"⚠️ [TinySA] Serial port not open for command: {command_str.strip()}")
+        return None if read_response else False
     try:
-        # ตัวอย่างคำสั่ง (อาจจะต้องปรับตามคู่มือ TinySA Ultra จริงๆ)
-        # คำสั่งเหล่านี้เป็นเพียงการคาดเดา ต้องอ้างอิงจากเอกสารของ TinySA
+        log(f"➡️ [TinySA] Sending: {command_str.strip()}")
+        ser.write(command_str.encode())
+        time.sleep(delay_after_command) # ให้เวลากับอุปกรณ์
+        if read_response:
+            # TinySA มักจะตอบกลับทันที หรือมี prompt (เช่น 'ch> ')
+            # การ read_until() อาจจะต้องปรับตาม prompt หรือ terminator ที่ TinySA ใช้
+            # ถ้าไม่มี prompt ที่ชัดเจน อาจจะอ่านตามจำนวน bytes ที่คาดหวัง หรือใช้ timeout
+            response_lines = []
+            # อ่านจนกว่าจะไม่มีข้อมูลใหม่ใน buffer หรือเจอ prompt (ถ้ามี)
+            # นี่เป็นวิธีอ่านแบบง่าย อาจจะต้องปรับปรุง
+            # while ser.in_waiting > 0:
+            #     line = ser.readline().strip().decode('ascii', errors='ignore')
+            #     if line:
+            #         response_lines.append(line)
+            #     else: # อาจจะเจอ empty line ถ้าหมดข้อมูลแล้ว
+            #         break
+            # response_str = "\n".join(response_lines)
 
-        # เข้าสู่โหมด Spectrum Analyzer (ถ้าจำเป็น)
-        # ser.write(b"MODE SA\r\n") # หรือคำสั่งที่คล้ายกัน
-        # time.sleep(0.1)
+            # วิธีที่อาจจะดีกว่าคือรอ prompt หรือ timeout สั้นๆ
+            # TinySA บางรุ่นอาจจะมี prompt เช่น 'ch> ' หรือ '>'
+            # ในที่นี้จะลองอ่านแบบรอ timeout เล็กน้อย
+            response_bytes = b''
+            start_time = time.time()
+            while (time.time() - start_time) < 0.5: # รอสูงสุด 0.5 วินาทีสำหรับ response
+                if ser.in_waiting > 0:
+                    response_bytes += ser.read(ser.in_waiting)
+                else:
+                    if response_bytes: # ถ้ามีข้อมูลแล้ว และไม่มีอะไรเพิ่ม ก็ break
+                        break
+                    time.sleep(0.05) # หน่วงเล็กน้อยถ้ายังไม่มีข้อมูล
 
-        # ตั้งค่าความถี่กลาง
-        ser.write(f"FREQ:CENT {freq_hz}HZ\r\n".encode())
-        log(f"📡 [TinySA] Set Center Freq: {freq_hz} Hz")
-        time.sleep(0.1) # หน่วงเวลาให้ TinySA ประมวลผลคำสั่ง
+            response_str = response_bytes.strip().decode('ascii', errors='ignore')
+            log(f"⬅️ [TinySA] Received: {response_str if response_str else '<No immediate response>'}")
+            return response_str
+        return True
+    except serial.SerialException as e:
+        log(f"❌ [TinySA] Serial error sending command '{command_str.strip()}': {e}")
+        return None if read_response else False
+    except Exception as e:
+        log(f"❌ [TinySA] Error sending command '{command_str.strip()}': {e}")
+        return None if read_response else False
 
-        # ตั้งค่า Span ให้แคบที่สุด (เช่น 0 Hz หรือค่าต่ำสุดที่ทำได้) เพื่อวัดที่จุดเดียว
-        ser.write(b"FREQ:SPAN 0HZ\r\n") # หรือค่าที่น้อยมากๆ
-        log(f"📡 [TinySA] Set Span: 0 Hz")
-        time.sleep(0.1)
+def setup_tinysa_for_measurement(ser, center_freq_hz, sweep_points, repeat_interval_ms):
+    """ตั้งค่า TinySA สำหรับการวัด ณ ความถี่ที่กำหนด"""
+    global tinysa_is_paused
+    if not ser or not ser.is_open:
+        return False
+    try:
+        if tinysa_is_paused:  # ถ้า pause อยู่ ให้ resume ก่อนตั้งค่า
+            send_tinysa_command(ser, b"resume\r\n")
+            tinysa_is_paused = False
+            log(f"📡 [TinySA] Resumed for setup.")
 
-        # (ทางเลือก) ตั้งค่า RBW, Attenuation, Reference Level ถ้าจำเป็น
-        # ser.write(b"BAND:RES 10KHZ\r\n") # ตัวอย่าง RBW
-        # time.sleep(0.1)
-        # ser.write(b"INP:ATT 0DB\r\n") # ตัวอย่าง Attenuation
-        # time.sleep(0.1)
+        # กำหนดช่วงความถี่ (ให้แคบที่สุดรอบ center_freq_hz)
+        # sweep freq_mhz_start freq_mhz_end sweep_point
+        # TinySA รับความถี่เป็น Hz สำหรับคำสั่ง sweep
+        # เราจะตั้ง span เล็กๆ รอบ center frequency
+        # ตัวอย่าง span 20kHz (10kHz แต่ละข้าง) ซึ่งเป็น 20000Hz
+        # หรือจะใช้ 0 span ถ้า TinySA รองรับการวัดที่จุดเดียวโดยตรง (ต้องดูคู่มือ)
+        # สมมติว่าเราต้องการ span แคบๆ พอให้ marker จับได้
+        span_hz = 20000  # 20 kHz span (ปรับได้)
+        freq_start_hz = center_freq_hz - (span_hz // 2)
+        freq_end_hz = center_freq_hz + (span_hz // 2)
 
-        # เปิด Marker 1 (ถ้าจะใช้ Marker อ่านค่า)
-        # ser.write(b"CALC:MARK1 ON\r\n")
-        # time.sleep(0.1)
-        # ser.write(f"CALC:MARK1:X {freq_hz}HZ\r\n") # ให้ Marker 1 อยู่ที่ความถี่ที่เราต้องการ
-        # time.sleep(0.1)
+        send_tinysa_command(ser, f"sweep {freq_start_hz} {freq_end_hz} {sweep_points}\r\n".encode())
 
-        # อาจจะมีคำสั่งอื่นๆ เช่น รอให้ sweep เสร็จ หรือ query error
-        # ser.write(b"*OPC?\r\n") # รอ operation complete
-        # ser.read_until().strip().decode() # อ่าน response
+        # กำหนด interval
+        send_tinysa_command(ser, f"repeat {repeat_interval_ms}\r\n".encode())
 
-        # ser.write(b"SYST:ERR?\r\n") # ตรวจสอบ error
-        # error_check = ser.read_until().strip().decode()
-        # if not error_check.startswith("0,"):
-        #     log(f"⚠️ [TinySA] Setup error: {error_check}")
-        #     return False
+        # กำหนด Marker 1 ไปยังความถี่กลาง
+        send_tinysa_command(ser, f"marker 1 {center_freq_hz}\r\n".encode())
+
+        log(f"✅ [TinySA] Setup complete for {center_freq_hz / 1_000_000:.3f} MHz.")
         return True
     except Exception as e:
-        log(f"❌ [TinySA] Exception during setup: {e}")
+        log(f"❌ [TinySA] Exception during setup_tinysa: {e}")
         return False
 
+
 def get_signal_strength_tinysa(ser):
-    """อ่านค่าความแรงสัญญาณจาก TinySA (ต้องปรับคำสั่งให้ตรงกับ TinySA Ultra)"""
+    """อ่านค่าความแรงสัญญาณจาก Marker 1 ของ TinySA"""
+    global tinysa_is_paused
     if not ser or not ser.is_open:
-        log("⚠️ [TinySA] Serial port not open.")
         return None
     try:
-        # คำสั่งที่ใช้ในการ Query ค่าพลังงาน/Marker อาจจะเป็น
-        # 'CALC:MARK1:Y?' (อ่านค่า Y ของ Marker 1)
-        # 'TRACE:DATA? TRACE1' แล้ว parse เพื่อหาค่าที่ความถี่กลาง
-        # หรือคำสั่งเฉพาะอื่นๆ ของ TinySA Ultra
+        if tinysa_is_paused:  # ถ้า pause อยู่ ให้ resume ก่อนอ่านค่า
+            send_tinysa_command(ser, b"resume\r\n")
+            tinysa_is_paused = False
+            log(f"📡 [TinySA] Resumed for reading signal strength.")
+            time.sleep(TINYSA_REPEAT_INTERVAL / 1000 * 2)  # รอให้มีการ sweep อย่างน้อยหนึ่งรอบหลังจาก resume
 
-        # === ตัวอย่าง: สมมติว่ามีคำสั่งอ่านค่า Peak ของ Marker 1 ===
-        # ser.reset_input_buffer() # เคลียร์ buffer ก่อนส่งคำสั่ง
-        # ser.write(b"CALC:MARK1:MAX\r\n") # ย้าย marker ไปที่ peak (ถ้าต้องการ)
-        # time.sleep(0.2) # รอให้ marker ย้าย
-        ser.write(b"CALC:MARK1:Y?\r\n") # ส่งคำสั่ง Query ค่า Y ของ Marker 1
-        response_bytes = ser.read_until(b'\r\n') # อ่านจนเจอ newline (หรือตาม terminator ของ TinySA)
-        response_str = response_bytes.strip().decode('ascii', errors='ignore')
-        log(f"📡 [TinySA] Raw Y response: '{response_str}'")
+        raw_response = send_tinysa_command(ser, b"marker\r\n", read_response=True,
+                                           delay_after_command=0.2)  # เพิ่ม delay เล็กน้อย
 
-        # Parse ค่า dBm จาก response (รูปแบบอาจจะต้องปรับ)
-        # TinySA มักจะตอบกลับเป็นตัวเลข เช่น "-50.75"
-        match = re.search(r"([-+]?\d+\.\d+)", response_str) # มองหาตัวเลขทศนิยม
-        if match:
-            dbm_value = float(match.group(1))
-            log(f"📡 [TinySA] Signal strength: {dbm_value:.2f} dBm")
-            return dbm_value
+        if raw_response:
+            # ตัวอย่าง response: "1 20 145200000 -2.95e+01"
+            # หรืออาจจะมีหลายบรรทัด หรือมี prompt "ch> "
+            # เราต้องการหาบรรทัดที่ขึ้นต้นด้วย "1 " (Marker 1)
+            lines = raw_response.split('\n')
+            for line in lines:
+                line = line.strip()
+                if line.startswith("1 "):  # Marker 1 data
+                    parts = line.split()  # แยกด้วย space
+                    if len(parts) == 4:
+                        try:
+                            # parts[0] = marker number (1)
+                            # parts[1] = sweep point (20)
+                            # parts[2] = frequency (145200000)
+                            # parts[3] = signal value (-2.95e+01)
+                            signal_str = parts[3]
+                            dbm_value = float(signal_str)  # ค่าที่ได้คือ -29.5
+                            log(f"📡 [TinySA] Marker 1 Raw: '{line}', Parsed dBm: {dbm_value:.2f}")
+                            return dbm_value
+                        except ValueError:
+                            log(f"⚠️ [TinySA] Could not parse signal value from: '{line}'")
+                            continue  # ลองบรรทัดถัดไปถ้ามี
+                    else:
+                        log(f"⚠️ [TinySA] Unexpected marker line format: '{line}'")
+            log(f"⚠️ [TinySA] Could not find valid Marker 1 data in response: '{raw_response}'")
         else:
-            log(f"⚠️ [TinySA] Could not parse dBm value from response: '{response_str}'")
-            return None
-    except serial.SerialException as e:
-        log(f"❌ [TinySA] Serial communication error: {e}")
+            log("⚠️ [TinySA] No response from 'marker' command.")
         return None
     except Exception as e:
         log(f"❌ [TinySA] Error getting signal strength from TinySA: {e}")
         return None
+
+def pause_tinysa(ser):
+    global tinysa_is_paused
+    if ser and ser.is_open and not tinysa_is_paused:
+        send_tinysa_command(ser, b"pause\r\n")
+        tinysa_is_paused = True
+        log("⏸️ [TinySA] Paused.")
+
+def resume_tinysa(ser):
+    global tinysa_is_paused
+    if ser and ser.is_open and tinysa_is_paused:
+        send_tinysa_command(ser, b"resume\r\n")
+        tinysa_is_paused = False
+        log("▶️ [TinySA] Resumed.")
 
 # ระบบ Pre-processing ตัด noise, normalize volume, และ apply high-pass filter
 def preprocess_audio(in_path):
@@ -1342,24 +1417,21 @@ if __name__ == "__main__":
 
     if TINYSA_ENABLED: # เปลี่ยนเป็นเงื่อนไขนี้ (หรือสร้าง config key ใหม่ เช่น TINYSA_ENABLED)
         try:
-            tinysa_serial_connection = serial.Serial(TINYSA_SERIAL_PORT, TINYSA_BAUDRATE, timeout=1) # ตั้ง timeout
+            tinysa_serial_connection = serial.Serial(TINYSA_SERIAL_PORT, TINYSA_BAUDRATE, timeout=0.5) # ตั้ง timeout
             log(f"✅ [TinySA] Connected to TinySA on {TINYSA_SERIAL_PORT}")
             # ทำการ setup TinySA ครั้งแรก
-            if not setup_tinysa_for_measurement(tinysa_serial_connection, TARGET_FREQUENCY_HZ): # Setup ด้วยความถี่เริ่มต้น
-                 log(f"⚠️ [TinySA] Initial setup failed. Signal strength reading might be inaccurate.")
-                 # อาจจะปิดการใช้งาน tinysa_serial_connection ถ้า setup ล้มเหลว
-                 # tinysa_serial_connection.close()
-                 # tinysa_serial_connection = None
-            # else:
-            #    tinysa_serial_connection.last_configured_freq = TARGET_FREQUENCY_HZ # เก็บความถี่ที่ setup ล่าสุด
+            # ไม่ต้อง setup ที่นี่แล้ว จะไป setup ตอนเริ่ม record_until_silent
+            # แต่สั่ง pause ไว้ก่อนเลย
+            pause_tinysa(tinysa_serial_connection)
         except serial.SerialException as e:
             log(f"❌ [TinySA] Could not open serial port {TINYSA_SERIAL_PORT}: {e}")
             log("ℹ️ [TinySA] Signal strength measurement will be disabled.")
-            RTL_SDR_ENABLED = False # ปิดการใช้งานถ้าต่อไม่ได้
+            TINYSA_ENABLED = False # ปิดการใช้งานถ้าต่อไม่ได้
         except Exception as e_init:
             log(f"❌ [TinySA] Unexpected error during TinySA initialization: {e_init}")
-            RTL_SDR_ENABLED = False
-            
+            log("ℹ️ [TinySA] Signal strength measurement will be disabled.")
+            TINYSA_ENABLED = False
+
     try:
         while True:
 
@@ -1391,7 +1463,7 @@ if __name__ == "__main__":
                     log("🟢 การทำงานตามตารางเวลาถูกปิด เริ่มการบันทึกตามปกติ...")
                     log_waiting_message = True
 
-                result = record_until_silent(p_instance)
+                result = record_until_silent(p_instance, tinysa_serial_connection)
                 if result:
                     fp, dur, average_signal_strength_for_task = result
                     # เรียก thread ใหม่ให้ทันที ไม่ต้องรอ
@@ -1411,6 +1483,7 @@ if __name__ == "__main__":
         if p_instance: # ตรวจสอบว่า ถูกสร้างแล้ว
             p_instance.terminate() # <--- ปิด PyAudio object ครั้งเดียวเมื่อจบโปรแกรม
         if tinysa_serial_connection and tinysa_serial_connection.is_open:
+            send_tinysa_command(tinysa_serial_connection, b"resume\r\n")  # Resume ก่อนปิด port เพื่อไม่ให้ค้าง
             tinysa_serial_connection.close()
             log("✅ [TinySA] Disconnected from TinySA.")
         log("✅ ระบบปิดเรียบร้อย")
