@@ -1284,8 +1284,9 @@ def worker(worker_id):
 
         # log(f"[Worker {worker_id}]  : {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}")
         # log(f"[Worker {worker_id}] ... Signal: {avg_signal_db_from_queue:.2f} dB" if avg_signal_db_from_queue is not None else f"[Worker {worker_id}] ... Signal: N/A")
-        log(f"[Worker {worker_id}] Processing: {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}, Signal: {avg_signal_db_from_queue:.2f} dB" if avg_signal_db_from_queue is not None else f"[Worker {worker_id}] Processing: {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}, Signal: N/A")
-        log(f"[Worker {worker_id}] 📝 ข้อความที่ถอดได้: {transcript_text}")  # แสดงข้อความที่ถอดได้
+        log_prefix = f"[Worker {worker_id}]"
+        log(f"{log_prefix} Processing: {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}, Signal: {avg_signal_db_from_queue:.2f} dB" if avg_signal_db_from_queue is not None else f"[Worker {worker_id}] Processing: {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}, Signal: N/A")
+        log(f"{log_prefix} 📝 ข้อความที่ถอดได้: {transcript_text}")  # แสดงข้อความที่ถอดได้
 
         try:
             # --- ส่วนตรวจสอบ Keyword และเรียก TTS ---
@@ -1318,7 +1319,7 @@ def worker(worker_id):
                             for except_word in except_keywords_list:
                                 if except_word.lower() in transcript_text.lower():
                                     found_exception = True
-                                    log(f"[Worker {worker_id}] ℹ️ พบ Keyword '{keyword}' แต่ก็พบคำยกเว้น '{except_word}' ด้วย จึงไม่ทำการตอบกลับ TTS")
+                                    log(f"{log_prefix} ℹ️ พบ Keyword '{keyword}' แต่ก็พบคำยกเว้น '{except_word}' ด้วย จึงไม่ทำการตอบกลับ TTS")
                                     break  # ออกจาก loop ของ except_keywords
 
                         if not found_exception:  # ถ้าไม่พบคำที่ยกเว้นใดๆ จึงค่อยพิจารณาสร้างข้อความตอบกลับ
@@ -1335,7 +1336,7 @@ def worker(worker_id):
                                 else: # ถ้าไม่มี placeholder ก็ต่อท้าย (สำหรับกรณี "ทดสอบระดับสัญญาณ" เท่านั้น)
                                     final_response_to_speak += f" ระดับสัญญาณเฉลี่ย {avg_signal_db_from_queue:.1f} ดีบีเอ็ม"
                             # --- สิ้นสุดการตรวจสอบ ---
-                            
+
                             if final_response_to_speak:
                                 log(f"{log_prefix} 🗣️ พบ Keyword, กำลังเตรียมพูด: '{final_response_to_speak}'")
                                 tts_thread = threading.Thread(target=speak_text_azure,
@@ -1362,23 +1363,23 @@ def worker(worker_id):
             should_delete_wavs = MP3_CONVERSION_ENABLED and mp3_path and os.path.exists(mp3_path)
 
             if should_delete_wavs:
-                log(f"[Worker {worker_id}] เงื่อนไขการลบ WAVs เป็นจริง (MP3 Enabled: {MP3_CONVERSION_ENABLED}, MP3 Path: {mp3_path})")
+                log(f"{log_prefix} เงื่อนไขการลบ WAVs เป็นจริง (MP3 Enabled: {MP3_CONVERSION_ENABLED}, MP3 Path: {mp3_path})")
                 # === ลบไฟล์ WAV ที่ไม่ต้องการแล้ว (หลังจาก upload เสร็จ) ===
                 if processed_wav_to_delete and os.path.exists(processed_wav_to_delete):
                     # ลบ _processed.wav ถ้ามันถูกสร้างและไม่ใช่ไฟล์เดียวกับ original_wav_to_delete
                     if processed_wav_to_delete != original_wav_to_delete:
                         try:
                             os.remove(processed_wav_to_delete)
-                            log(f"[Worker {worker_id}] 🗑️ ลบไฟล์ _processed.wav: {processed_wav_to_delete}")
+                            log(f"{log_prefix} 🗑️ ลบไฟล์ _processed.wav: {processed_wav_to_delete}")
                         except OSError as e:
-                            log(f"[Worker {worker_id}] ⚠️ ไม่สามารถลบไฟล์ {processed_wav_to_delete}: {e}")
+                            log(f"{log_prefix} ⚠️ ไม่สามารถลบไฟล์ {processed_wav_to_delete}: {e}")
 
                 if original_wav_to_delete and os.path.exists(original_wav_to_delete):
                     try:
                         os.remove(original_wav_to_delete)
-                        log(f"[Worker {worker_id}] 🗑️ ลบไฟล์ .wav ต้นฉบับ: {original_wav_to_delete}")
+                        log(f"{log_prefix} 🗑️ ลบไฟล์ .wav ต้นฉบับ: {original_wav_to_delete}")
                     except OSError as e:
-                        log(f"[Worker {worker_id}] ⚠️ ไม่สามารถลบไฟล์ {original_wav_to_delete}: {e}")
+                        log(f"{log_prefix} ⚠️ ไม่สามารถลบไฟล์ {original_wav_to_delete}: {e}")
 
             else:
                 log_reason = ""
@@ -1388,11 +1389,11 @@ def worker(worker_id):
                     log_reason = "การแปลง MP3 ล้มเหลว หรือไม่พบไฟล์ MP3"
                 else:
                     log_reason = "เงื่อนไขอื่น (โปรดตรวจสอบ)"
-                log(f"[Worker {worker_id}] ℹ️ ข้ามการลบไฟล์ WAVs. เนื่องจาก: {log_reason}")
+                log(f"{log_prefix} ℹ️ ข้ามการลบไฟล์ WAVs. เนื่องจาก: {log_reason}")
                 # log(f"[Worker {worker_id}] ℹ️ ข้ามการลบไฟล์ WAVs (MP3 Enabled: {MP3_CONVERSION_ENABLED}, MP3 Path: {mp3_path})")
 
         except Exception as e:
-            log(f"[Worker {worker_id}]❌ ERROR ใน worker ขณะจัดการ task สำหรับ {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'N/A')}: {e}")
+            log(f"{log_prefix} ❌ ERROR ใน worker ขณะจัดการ task สำหรับ {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'N/A')}: {e}")
             # อาจจะยังต้องการพยายามลบไฟล์ถ้าเกิด exception หลัง upload
         finally:
             audio_queue.task_done()
