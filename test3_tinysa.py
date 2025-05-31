@@ -1523,7 +1523,7 @@ if __name__ == "__main__":
             # send_tinysa_command(tinysa_serial_connection, "resume\r\n")  # Resume ก่อนปิด port เพื่อไม่ให้ค้าง
             # ไม่จำเป็นต้อง resume ก่อน close โดยทั่วไป, แต่ถ้ามีปัญหากับอุปกรณ์บางรุ่นอาจจะลองได้
             # send_tinysa_command(tinysa_serial_connection, "resume\r\n", expect_prompt=False) # ไม่ต้องคาดหวัง prompt ตอนจะปิดแล้ว
-            send_tinysa_command(tinysa_serial_connection, "pasue\r\n")
+            send_tinysa_command(tinysa_serial_connection, "pause\r\n")
             tinysa_serial_connection.close()
             log("✅ [TinySA] Disconnected from TinySA.")
         log("✅ ระบบปิดเรียบร้อย")
