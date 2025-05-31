@@ -355,7 +355,8 @@ def record_until_silent(pyaudio_instance, tinysa_ser=None):
         if TINYSA_ENABLED and tinysa_ser and not tinysa_is_paused:  # ถ้าเปิดใช้งาน TinySA และมันยังไม่ pause
             pause_tinysa(tinysa_ser)
 
-        log(f"📡 รอฟังเสียง ({FREQUENCY}) ...")
+        # log(f"📡 รอฟังเสียง ({FREQUENCY}) ...")
+        log(f"📡 รอฟังเสียง ({FREQUENCY}) ... (TinySA Paused: {tinysa_is_paused})")
 
         if TRANSCRIBE_ENGINE_MODE == "google":
             max_record_sec = 59  # ของ Google Cloud API หากอัดเสียงเกินกว่า 60 วินาที จะไม่สามารถถอดข้อความได้ จึงต้องกำหนดเป็น 59
@@ -389,21 +390,42 @@ def record_until_silent(pyaudio_instance, tinysa_ser=None):
                         # อาจจะ setup ใหม่ถ้าความถี่เปลี่ยน (ถ้า FREQUENCY เปลี่ยนได้)
                         current_monitoring_freq_hz_for_tinysa = int(
                             float(FREQUENCY) * 1_000_000) if FREQUENCY.upper() != "SCAN" else TARGET_FREQUENCY_HZ
+
+                        # Setup TinySA (จะถูกเรียกถ้าความถี่เปลี่ยน หรือครั้งแรก)
+                        # คุณอาจจะต้องมี logic เพิ่มเติมถ้าต้องการ setup ทุกครั้งที่เริ่ม record ใหม่
+                        # หรือ setup เฉพาะเมื่อความถี่เปลี่ยนจริงๆ
+                        # if getattr(tinysa_ser, 'last_configured_freq_tinysa', None) != current_monitoring_freq_hz_for_tinysa or \
+                        #    getattr(tinysa_ser, 'needs_initial_setup', True): # เพิ่ม flag สำหรับ setup ครั้งแรก
                         setup_tinysa_for_measurement(tinysa_ser, current_monitoring_freq_hz_for_tinysa,
                                                      TINYSA_SWEEP_POINTS, TINYSA_REPEAT_INTERVAL)
 
-                        time.sleep(TINYSA_REPEAT_INTERVAL / 1000 * 2)  # รอ sweep แรก
-                        strength = get_signal_strength_tinysa(tinysa_ser)
-                        if strength is not None:
-                            signal_strengths_db.append(strength)
-                        last_tinysa_check_time = time.time()
+                        # time.sleep(TINYSA_REPEAT_INTERVAL / 1000 * 2)  # รอ sweep แรก
+                        # strength = get_signal_strength_tinysa(tinysa_ser)
+                        # if strength is not None:
+                        #     signal_strengths_db.append(strength)
+                        # last_tinysa_check_time = time.time()
+                        last_tinysa_check_time = time.time()  # << รีเซ็ตเวลาเช็ค เพื่อให้รอบถัดไปรอ 1 วินาทีจริงๆ # ไม่มีการอ่านค่า strength ทันทีตรงนี้แล้ว
+
             else:  # recording is True (กำลังอัดเสียง)
                 frames.append(data)  # เพิ่ม chunk ปัจจุบันเข้าไปใน frames
 
-                if TINYSA_ENABLED and tinysa_ser and not tinysa_is_paused and (time.time() - last_tinysa_check_time >= 1.0):  # อ่านทุก 1 วินาที
+                # --- อ่านค่าความแรงสัญญาณจาก TinySA เป็นระยะ (เมื่อ recording = True) ---
+                if TINYSA_ENABLED and tinysa_ser and not tinysa_is_paused and (time.time() - last_tinysa_check_time >= 1.0):  # อ่านทุกๆ 1 วินาที (ปรับได้)
+
+                    # ไม่จำเป็นต้อง setup TinySA ซ้ำที่นี่ ยกเว้น FREQUENCY มีการเปลี่ยนแปลงแบบ dynamic
+                    # ซึ่ง control_thread ควรจะจัดการเรื่องการ re-setup ถ้า FREQUENCY เปลี่ยน
+
                     strength = get_signal_strength_tinysa(tinysa_ser)
+                    # if strength is not None:
+                    #     signal_strengths_db.append(strength)
+                    # last_tinysa_check_time = time.time()
                     if strength is not None:
-                        signal_strengths_db.append(strength)
+                        if not signal_strengths_db and len(frames) < (
+                                RATE / CHUNK * 0.5):  # ตัวอย่าง: ถ้าเป็นค่าแรกๆ และยังอัดไม่ถึง 0.5 วิ อาจจะข้าม
+                            log(f"📡 [TinySA] ข้ามการเก็บค่าสัญญาณรอบแรก: {strength:.2f} dBm (เพื่อรอความเสถียร)")
+                        else:
+                            signal_strengths_db.append(strength)
+                            log(f"📡 [TinySA] เก็บค่าสัญญาณ: {strength:.2f} dBm")
                     last_tinysa_check_time = time.time()
 
                 if amplitude <= THRESHOLD:  # ถ้า chunk ปัจจุบันเสียงเบา
@@ -1501,6 +1523,7 @@ if __name__ == "__main__":
             # send_tinysa_command(tinysa_serial_connection, "resume\r\n")  # Resume ก่อนปิด port เพื่อไม่ให้ค้าง
             # ไม่จำเป็นต้อง resume ก่อน close โดยทั่วไป, แต่ถ้ามีปัญหากับอุปกรณ์บางรุ่นอาจจะลองได้
             # send_tinysa_command(tinysa_serial_connection, "resume\r\n", expect_prompt=False) # ไม่ต้องคาดหวัง prompt ตอนจะปิดแล้ว
+            send_tinysa_command(tinysa_serial_connection, "pasue\r\n")
             tinysa_serial_connection.close()
             log("✅ [TinySA] Disconnected from TinySA.")
         log("✅ ระบบปิดเรียบร้อย")
