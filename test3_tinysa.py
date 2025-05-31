@@ -1299,18 +1299,17 @@ def worker(worker_id):
                     # --- สิ้นสุดการกำหนด Keyword เฉพาะ ---
 
                     found_trigger = False
-                    triggered_keyword_for_signal_report = None  # เก็บ keyword ที่ trigger การรายงานสัญญาณ
+                    is_signal_report_trigger = False # Flag ว่า trigger นี้เป็น trigger สำหรับรายงานสัญญาณหรือไม่
 
                     for keyword in trigger_keywords:
                         if keyword.lower() in transcript_text.lower():
                             found_trigger = True
                             # ตรวจสอบว่าเป็น keyword ที่ต้องการให้รายงานระดับสัญญาณหรือไม่
                             for sr_keyword in signal_report_keywords:
-                                if sr_keyword.lower() == keyword.lower():  # ตรวจสอบ keyword ที่ trigger ตรงๆ
-                                    triggered_keyword_for_signal_report = sr_keyword
+                                if sr_keyword.lower() == keyword.lower():
+                                    is_signal_report_trigger = True
                                     break
-                            if triggered_keyword_for_signal_report:  # ถ้าเจอ keyword สำหรับรายงานสัญญาณ ก็ไม่ต้องเช็ค trigger_keywords อื่น
-                                break
+                            break # เมื่อเจอ trigger keyword แรก ก็ออกจาก loop trigger_keywords ของ rule นี้
 
                     if found_trigger:
                         # ถ้าเจอ Keyword หลักแล้ว ให้ตรวจสอบคำที่ยกเว้น
@@ -1322,31 +1321,29 @@ def worker(worker_id):
                                     log(f"[Worker {worker_id}] ℹ️ พบ Keyword '{keyword}' แต่ก็พบคำยกเว้น '{except_word}' ด้วย จึงไม่ทำการตอบกลับ TTS")
                                     break  # ออกจาก loop ของ except_keywords
 
-                        if not found_exception:  # ถ้าไม่พบคำที่ยกเว้นใดๆ
+                        if not found_exception:  # ถ้าไม่พบคำที่ยกเว้นใดๆ จึงค่อยพิจารณาสร้างข้อความตอบกลับ
                             response_to_speak_base = tts_config_item.get("response_text")
                             response_voice = tts_config_item.get("response_voice")
 
                             final_response_to_speak = response_to_speak_base
 
-                            # --- ตรวจสอบว่าจะเพิ่มข้อมูลระดับสัญญาณหรือไม่ ---
-                            # เพิ่มข้อมูลระดับสัญญาณก็ต่อเมื่อ Keyword ที่ trigger นั้นอยู่ในรายการ signal_report_keywords
-                            if triggered_keyword_for_signal_report and avg_signal_db_from_queue is not None:
+                            # เพิ่มข้อมูลระดับสัญญาณก็ต่อเมื่อ is_signal_report_trigger เป็น True เท่านั้น
+                            if is_signal_report_trigger and avg_signal_db_from_queue is not None:
                                 if "{signal_db}" in final_response_to_speak:
                                     final_response_to_speak = final_response_to_speak.replace("{signal_db}",
                                                                                               f"{avg_signal_db_from_queue:.1f}")
-                                else:  # ถ้าไม่มี placeholder ก็ต่อท้าย (สำหรับกรณี "ทดสอบระดับสัญญาณ" เท่านั้น)
+                                else: # ถ้าไม่มี placeholder ก็ต่อท้าย (สำหรับกรณี "ทดสอบระดับสัญญาณ" เท่านั้น)
                                     final_response_to_speak += f" ระดับสัญญาณเฉลี่ย {avg_signal_db_from_queue:.1f} ดีบีเอ็ม"
                             # --- สิ้นสุดการตรวจสอบ ---
-
-                        if final_response_to_speak:
-                            log(f"[Worker {worker_id}] 🗣️ พบ Keyword, กำลังเตรียมพูด: '{final_response_to_speak}'")
-                            # สร้าง thread ใหม่สำหรับ speak_text_azure เพื่อไม่ให้ block worker
-                            tts_thread = threading.Thread(target=speak_text_azure,
-                                                          args=(final_response_to_speak, response_voice), daemon=True)
-                            tts_thread.start()
-                            # ไม่ต้อง join tts_thread ที่นี่ เพื่อให้ worker ทำงานต่อไปได้
-                        break  # ออกจาก loop ของ tts_config_item (เมื่อเจอ rule แรกที่ match และไม่ติด exception)
-            # --- สิ้นสุดส่วน TTS ---
+                            
+                            if final_response_to_speak:
+                                log(f"{log_prefix} 🗣️ พบ Keyword, กำลังเตรียมพูด: '{final_response_to_speak}'")
+                                tts_thread = threading.Thread(target=speak_text_azure,
+                                                              args=(final_response_to_speak, response_voice),
+                                                              daemon=True)
+                                tts_thread.start()
+                            break  # ออกจาก loop ของ tts_config_item (เมื่อเจอ rule แรกที่ match และไม่ติด exception และได้ดำเนินการแล้ว)
+        # --- สิ้นสุดส่วน TTS ---
 
             # เรียก upload_audio_and_text โดยตรง เพราะการถอดความทำไปแล้ว
             upload_audio_and_text(
