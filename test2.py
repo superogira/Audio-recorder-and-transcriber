@@ -1157,31 +1157,46 @@ def worker(worker_id):
         file_for_transcription_wav, mp3_path, duration, transcript_text, engine_actually_used, \
         original_wav_to_delete, processed_wav_to_delete, avg_signal_db_from_queue = task
 
-        log(f"[Worker {worker_id}]  : {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}")
-        log(f"[Worker {worker_id}] ... Signal: {avg_signal_db_from_queue:.2f} dB" if avg_signal_db_from_queue is not None else f"[Worker {worker_id}] ... Signal: N/A")
+        # log(f"[Worker {worker_id}]  : {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}")
+        # log(f"[Worker {worker_id}] ... Signal: {avg_signal_db_from_queue:.2f} dB" if avg_signal_db_from_queue is not None else f"[Worker {worker_id}] ... Signal: N/A")
+        log(f"[Worker {worker_id}] Processing: {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}, Signal: {avg_signal_db_from_queue:.2f} dB" if avg_signal_db_from_queue is not None else f"[Worker {worker_id}] Processing: {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}, Signal: N/A")
         log(f"[Worker {worker_id}] 📝 ข้อความที่ถอดได้: {transcript_text}")  # แสดงข้อความที่ถอดได้
-
-        text_for_tts_response = transcript_text  # ข้อความที่ได้จาก STT
 
         try:
             # --- ส่วนตรวจสอบ Keyword และเรียก TTS ---
-            if AZURE_TTS_RESPONSES_ENABLED and transcript_text and not text_for_tts_response.startswith("["):  # ตรวจสอบว่าไม่ใช่ error message
+            if AZURE_TTS_RESPONSES_ENABLED and transcript_text and not transcript_text.startswith("["):  # ตรวจสอบว่าไม่ใช่ error message
                 for tts_config_item in TTS_RESPONSES_CONFIG:
-                    trigger_found = False
-                    for keyword in tts_config_item.get("trigger_keywords", []):
+                    trigger_keywords = tts_config_item.get("trigger_keywords", [])
+                    except_keywords_list = tts_config_item.get("except_keywords", [])  # ดึงคำที่ยกเว้น
+
+                    found_trigger = False
+                    for keyword in trigger_keywords:
                         if keyword.lower() in transcript_text.lower():  # เปรียบเทียบแบบ case-insensitive
-                            trigger_found = True
+                            found_trigger = True
                             break
 
-                    if trigger_found:
-                        response_to_speak_base = tts_config_item.get("response_text")
-                        response_voice = tts_config_item.get("response_voice")  # อาจจะเป็น None
+                    if found_trigger:
+                        # ถ้าเจอ Keyword หลักแล้ว ให้ตรวจสอบคำที่ยกเว้น
+                        found_exception = False
+                        if except_keywords_list:  # ตรวจสอบว่ามีรายการคำยกเว้นหรือไม่
+                            for except_word in except_keywords_list:
+                                if except_word.lower() in transcript_text.lower():
+                                    found_exception = True
+                                    log(f"[Worker {worker_id}] ℹ️ พบ Keyword '{keyword}' แต่ก็พบคำยกเว้น '{except_word}' ด้วย จึงไม่ทำการตอบกลับ TTS")
+                                    break  # ออกจาก loop ของ except_keywords
 
-                        # --- เพิ่มค่าความแรงสัญญาณเข้าไปในข้อความตอบกลับ ---
-                        final_response_to_speak = response_to_speak_base
-                        if avg_signal_db_from_queue is not None:
-                            final_response_to_speak += f" ระดับสัญญาณเฉลี่ย {avg_signal_db_from_queue:.1f} ดีบี"
-                        # --- สิ้นสุดการเพิ่มค่าความแรงสัญญาณ ---
+                        if not found_exception:  # ถ้าไม่พบคำที่ยกเว้นใดๆ
+                            response_to_speak_base = tts_config_item.get("response_text")
+                            response_voice = tts_config_item.get("response_voice")
+
+                            # --- เพิ่มค่าความแรงสัญญาณเข้าไปในข้อความตอบกลับ ---
+                            final_response_to_speak = response_to_speak_base
+                            if avg_signal_db_from_queue is not None and "{signal_db}" in final_response_to_speak:
+                                final_response_to_speak = final_response_to_speak.replace("{signal_db}",
+                                                                                          f"{avg_signal_db_from_queue:.1f}")
+                            elif avg_signal_db_from_queue is not None:  # ถ้าไม่มี placeholder ก็ต่อท้าย (หรือปรับ logic ตามต้องการ)
+                                final_response_to_speak += f" ระดับสัญญาณเฉลี่ย {avg_signal_db_from_queue:.1f} ดีบี"
+                            # --- สิ้นสุดการเพิ่มค่าความแรงสัญญาณ ---
 
                         if final_response_to_speak:
                             log(f"[Worker {worker_id}] 🗣️ พบ Keyword, กำลังเตรียมพูด: '{final_response_to_speak}'")
@@ -1190,7 +1205,7 @@ def worker(worker_id):
                                                           args=(final_response_to_speak, response_voice), daemon=True)
                             tts_thread.start()
                             # ไม่ต้อง join tts_thread ที่นี่ เพื่อให้ worker ทำงานต่อไปได้
-                        break  # เมื่อเจอ config แรกที่ match ก็ให้ทำงานแล้วหยุดค้นหา (หรือจะให้ตอบทุกอันที่ match ก็เอา break ออก)
+                        break  # ออกจาก loop ของ tts_config_item (เมื่อเจอ rule แรกที่ match และไม่ติด exception)
             # --- สิ้นสุดส่วน TTS ---
 
             # เรียก upload_audio_and_text โดยตรง เพราะการถอดความทำไปแล้ว
