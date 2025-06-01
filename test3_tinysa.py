@@ -1104,7 +1104,7 @@ def convert_to_mp3_task(wav_path_to_convert, original_wav_basename_for_mp3_name)
     return mp3_filepath_local
 
 # ระบบอัพโหลดไฟล์และข้อมูลเข้าไปเก็บที่เว็บและฐานข้อมูล
-def upload_audio_and_text(original_wav_path, mp3_filepath, transcript, duration, engine_used, worker_id_for_log=None):
+def upload_audio_and_text(original_wav_path, mp3_filepath, transcript, duration, engine_used, worker_id_for_log=None, signal_dbm=None):
     log_prefix = f"[Worker {worker_id_for_log}] " if worker_id_for_log is not None else ""
 
     if not UPLOAD_ENABLED:
@@ -1137,8 +1137,11 @@ def upload_audio_and_text(original_wav_path, mp3_filepath, transcript, duration,
         'source': source_name,
         'frequency': FREQUENCY,
         'station': STATION,
-        'duration': str(round(duration, 2))
+        'duration': str(round(duration, 2)),
+        'signal_strength_dbm': f"{signal_dbm:.2f}" if signal_dbm is not None else None  # เพิ่ม field ใหม่
     }
+    # ลบ key ที่มีค่า None ออกจาก data เพื่อไม่ให้ส่งค่าว่างๆ ไป (ถ้า PHP script ไม่ได้จัดการ)
+    data = {k: v for k, v in data.items() if v is not None}
 
     files_payload = None
     if file_to_upload_path:
@@ -1308,12 +1311,12 @@ def worker(worker_id):
 
         # ขยาย tuple ให้รับค่าใหม่
         file_for_transcription_wav, mp3_path, duration, transcript_text, engine_actually_used, \
-        original_wav_to_delete, processed_wav_to_delete, avg_signal_db_from_queue = task
+        original_wav_to_delete, processed_wav_to_delete, avg_signal_dbm_from_queue = task
 
         # log(f"[Worker {worker_id}]  : {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}")
-        # log(f"[Worker {worker_id}] ... Signal: {avg_signal_db_from_queue:.2f} dB" if avg_signal_db_from_queue is not None else f"[Worker {worker_id}] ... Signal: N/A")
+        # log(f"[Worker {worker_id}] ... Signal: {avg_signal_dbm_from_queue:.2f} dB" if avg_signal_dbm_from_queue is not None else f"[Worker {worker_id}] ... Signal: N/A")
         log_prefix = f"[Worker {worker_id}]"
-        log(f"{log_prefix} Processing: {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}, Signal: {avg_signal_db_from_queue:.2f} dB" if avg_signal_db_from_queue is not None else f"[Worker {worker_id}] Processing: {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}, Signal: N/A")
+        log(f"{log_prefix} Processing: {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}, Signal: {avg_signal_dbm_from_queue:.2f} dB" if avg_signal_dbm_from_queue is not None else f"[Worker {worker_id}] Processing: {os.path.basename(file_for_transcription_wav if file_for_transcription_wav else 'NoWAV')}, MP3: {os.path.basename(mp3_path if mp3_path else 'NoMP3')}, Engine: {engine_actually_used}, Signal: N/A")
         log(f"{log_prefix} 📝 ข้อความที่ถอดได้: {transcript_text}")  # แสดงข้อความที่ถอดได้
 
         try:
@@ -1324,7 +1327,7 @@ def worker(worker_id):
                     except_keywords_list = tts_config_item.get("except_keywords", [])  # ดึงคำที่ยกเว้น
 
                     # --- กำหนด Keyword เฉพาะสำหรับการรายงานระดับสัญญาณ ---
-                    signal_report_keywords = ["สอบระดับสัญญา", "สอบสัญญา","ลองระดับสัญญา","ลองสัญญา"]
+                    signal_report_keywords_hardcoded = ["สอบระดับสัญญา", "สอบสัญญา","ลองระดับสัญญา","ลองสัญญา"]
                     # --- สิ้นสุดการกำหนด Keyword เฉพาะ ---
 
                     found_overall_trigger = False
@@ -1360,15 +1363,15 @@ def worker(worker_id):
                             final_response_to_speak = response_to_speak_base
 
                             # 5. เพิ่มข้อมูลระดับสัญญาณ ถ้า rule นี้สำหรับรายงานสัญญาณ และมีค่าสัญญาณ
-                            if is_this_rule_for_signal_report and avg_signal_db_from_queue is not None:
+                            if is_this_rule_for_signal_report and avg_signal_dbm_from_queue is not None:
                                 if "{signal_db}" in final_response_to_speak:
                                     final_response_to_speak = final_response_to_speak.replace("{signal_db}",
-                                                                                              f"{avg_signal_db_from_queue:.1f}")
-                                    log(f"{log_prefix} 💬 (Rule: '{actual_triggered_keyword_in_text}') แทนที่ {{signal_db}} ด้วย {avg_signal_db_from_queue:.1f} dBm")
+                                                                                              f"{avg_signal_dbm_from_queue:.1f}")
+                                    log(f"{log_prefix} 💬 (Rule: '{actual_triggered_keyword_in_text}') แทนที่ {{signal_db}} ด้วย {avg_signal_dbm_from_queue:.1f} dBm")
                                 else:
-                                    final_response_to_speak += f" ระดับสัญญาณเฉลี่ย {avg_signal_db_from_queue:.1f} ดีบีเอ็ม"
-                                    log(f"{log_prefix} 💬 (Rule: '{actual_triggered_keyword_in_text}') ต่อท้ายด้วยระดับสัญญาณ {avg_signal_db_from_queue:.1f} dBm")
-                            elif is_this_rule_for_signal_report and avg_signal_db_from_queue is None:
+                                    final_response_to_speak += f" ระดับสัญญาณเฉลี่ย {avg_signal_dbm_from_queue:.1f} ดีบีเอ็ม"
+                                    log(f"{log_prefix} 💬 (Rule: '{actual_triggered_keyword_in_text}') ต่อท้ายด้วยระดับสัญญาณ {avg_signal_dbm_from_queue:.1f} dBm")
+                            elif is_this_rule_for_signal_report and avg_signal_dbm_from_queue is None:
                                 log(f"{log_prefix} 💬 (Rule: '{actual_triggered_keyword_in_text}') เป็น Rule รายงานสัญญาณ แต่ไม่มีค่า Signal DB.")
                             else:  # ไม่ใช่ rule สำหรับรายงานสัญญาณ
                                 log(f"{log_prefix} 💬 (Rule: '{actual_triggered_keyword_in_text}') ไม่ใช่สำหรับรายงานสัญญาณ, ไม่เพิ่มข้อมูล dB.")
@@ -1389,8 +1392,8 @@ def worker(worker_id):
                 transcript_text,
                 duration,
                 engine_actually_used,  # engine ที่ใช้จริง
-                worker_id
-                # avg_signal_db_from_queue   # <--- ส่งค่าความแรงสัญญาณ
+                worker_id,
+                avg_signal_dbm_from_queue   # <--- ส่งค่าความแรงสัญญาณ
             )
 
             # === การลบไฟล์ WAV ===
