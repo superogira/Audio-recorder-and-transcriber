@@ -410,7 +410,7 @@ def record_until_silent(pyaudio_instance, tinysa_ser=None):
                 frames.append(data)  # เพิ่ม chunk ปัจจุบันเข้าไปใน frames
 
                 # --- อ่านค่าความแรงสัญญาณจาก TinySA เป็นระยะ (เมื่อ recording = True) ---
-                if TINYSA_ENABLED and tinysa_ser and not tinysa_is_paused and (time.time() - last_tinysa_check_time >= 1.0):  # อ่านทุกๆ 1 วินาที (ปรับได้)
+                if TINYSA_ENABLED and tinysa_ser and not tinysa_is_paused and (time.time() - last_tinysa_check_time >= 1.5):  # อ่านทุกๆ 1.5 วินาที (ปรับได้)
 
                     # ไม่จำเป็นต้อง setup TinySA ซ้ำที่นี่ ยกเว้น FREQUENCY มีการเปลี่ยนแปลงแบบ dynamic
                     # ซึ่ง control_thread ควรจะจัดการเรื่องการ re-setup ถ้า FREQUENCY เปลี่ยน
@@ -489,9 +489,37 @@ def record_until_silent(pyaudio_instance, tinysa_ser=None):
     filepath = os.path.join(SAVE_FOLDER, filename)
 
     average_signal_db = None
-    if signal_strengths_db:
-        average_signal_db = sum(signal_strengths_db) / len(signal_strengths_db)
-        log(f"📊 ค่าเฉลี่ยความแรงสัญญาณระหว่างบันทึก: {average_signal_db:.2f} dBm")
+    num_strength_samples = len(signal_strengths_db)  # จำนวนตัวอย่างความแรงสัญญาณที่เก็บได้
+
+    if num_strength_samples > 0:
+        log(f"📊 [SignalCalc] จำนวนตัวอย่างความแรงสัญญาณที่เก็บได้: {num_strength_samples}")
+        log(f"   [SignalCalc] ค่าทั้งหมด: {['{:.2f}'.format(s) for s in signal_strengths_db]}")
+
+        if num_strength_samples >= 3:
+            # ถ้ามีอย่างน้อย 3 ค่า ให้ตัดค่าแรกและค่าสุดท้ายออก
+            meaningful_strengths = signal_strengths_db[1:-1] # เอาตั้งแต่ index 1 จนถึงก่อนตัวสุดท้าย
+            if meaningful_strengths: # ตรวจสอบอีกครั้งว่าหลังจากตัดแล้วยังมีข้อมูล
+                average_signal_db = sum(meaningful_strengths) / len(meaningful_strengths)
+                log(f"📊 [SignalCalc] คำนวณค่าเฉลี่ยจาก {len(meaningful_strengths)} ค่า (ตัดหัวท้าย): {average_signal_db:.2f} dBm")
+            else: # กรณีที่ num_strength_samples คือ 2 พอดี แล้ว [1:-1] จะได้ list ว่าง
+                # ในกรณีนี้ เราอาจจะเลือกใช้ค่าเฉลี่ยของทั้งสองค่าเดิม หรือค่าเดียว
+                average_signal_db = sum(signal_strengths_db) / num_strength_samples
+                log(f"📊 [SignalCalc] มีตัวอย่างน้อยกว่า 3 (คือ {num_strength_samples} ค่า), คำนวณจากทั้งหมด: {average_signal_db:.2f} dBm")
+
+        elif num_strength_samples > 0: # ถ้ามี 1 หรือ 2 ค่า
+            # คำนวณค่าเฉลี่ยจากทั้งหมดที่มี (เพราะตัดหัวท้ายไม่ได้ หรือไม่มีประโยชน์)
+            average_signal_db = sum(signal_strengths_db) / num_strength_samples
+            log(f"📊 [SignalCalc] มีตัวอย่างน้อยเกินไปที่จะตัดหัวท้าย ({num_strength_samples} ค่า), คำนวณจากทั้งหมด: {average_signal_db:.2f} dBm")
+        # else: num_strength_samples คือ 0, average_signal_db จะยังเป็น None
+
+    if average_signal_db is not None:
+        log(f"📊 ค่าเฉลี่ยความแรงสัญญาณสุดท้ายที่จะใช้: {average_signal_db:.2f} dBm")
+    else:
+        log(f"📊 ไม่สามารถคำนวณค่าเฉลี่ยความแรงสัญญาณได้ (ไม่มีตัวอย่าง)")
+
+    # if signal_strengths_db:
+    #     average_signal_db = sum(signal_strengths_db) / len(signal_strengths_db)
+    #     log(f"📊 ค่าเฉลี่ยความแรงสัญญาณระหว่างบันทึก: {average_signal_db:.2f} dBm")
 
     try:
         wf = wave.open(filepath, 'wb')
@@ -610,7 +638,7 @@ def get_signal_strength_tinysa(ser):
             time.sleep(TINYSA_REPEAT_INTERVAL / 1000 * 2)  # รอให้มีการ sweep อย่างน้อยหนึ่งรอบหลังจาก resume
 
         raw_response = send_tinysa_command(ser, "marker\r\n", read_response=True,
-                                           delay_after_command=0.2)  # เพิ่ม delay เล็กน้อย
+                                           delay_after_command=0.1)
 
         if raw_response:
             # ตัวอย่าง response: "1 20 145200000 -2.95e+01"
