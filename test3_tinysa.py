@@ -410,7 +410,7 @@ def record_until_silent(pyaudio_instance, tinysa_ser=None):
                 frames.append(data)  # เพิ่ม chunk ปัจจุบันเข้าไปใน frames
 
                 # --- อ่านค่าความแรงสัญญาณจาก TinySA เป็นระยะ (เมื่อ recording = True) ---
-                if TINYSA_ENABLED and tinysa_ser and not tinysa_is_paused and (time.time() - last_tinysa_check_time >= 1.5):  # อ่านทุกๆ 1.5 วินาที (ปรับได้)
+                if TINYSA_ENABLED and tinysa_ser and not tinysa_is_paused and (time.time() - last_tinysa_check_time >= 0.7):  # อ่านทุกๆ 1.5 วินาที (ปรับได้)
 
                     # ไม่จำเป็นต้อง setup TinySA ซ้ำที่นี่ ยกเว้น FREQUENCY มีการเปลี่ยนแปลงแบบ dynamic
                     # ซึ่ง control_thread ควรจะจัดการเรื่องการ re-setup ถ้า FREQUENCY เปลี่ยน
@@ -1327,42 +1327,52 @@ def worker(worker_id):
                     signal_report_keywords = ["ทดสอบระดับสัญญา", "ทดสอบสัญญา"]
                     # --- สิ้นสุดการกำหนด Keyword เฉพาะ ---
 
-                    found_trigger = False
-                    is_signal_report_trigger = False # Flag ว่า trigger นี้เป็น trigger สำหรับรายงานสัญญาณหรือไม่
+                    # found_trigger = False
+                    # is_signal_report_trigger = False # Flag ว่า trigger นี้เป็น trigger สำหรับรายงานสัญญาณหรือไม่
 
+                    found_any_trigger = False
+                    is_this_a_signal_report_rule = False  # Flag สำหรับ rule นี้โดยเฉพาะ
+
+                    # ตรวจสอบว่า trigger_keywords ของ rule นี้ มีคำใดคำหนึ่งอยู่ใน signal_report_keywords หรือไม่
+                    for tk in trigger_keywords:
+                        if tk.lower() in [srk.lower() for srk in signal_report_keywords]:
+                            is_this_a_signal_report_rule = True
+                            break
+
+                    # ตรวจสอบว่า transcript มี trigger keyword ของ rule นี้หรือไม่
+                    actual_triggered_keyword = None
                     for keyword in trigger_keywords:
                         if keyword.lower() in transcript_text.lower():
-                            found_trigger = True
-                            # ตรวจสอบว่าเป็น keyword ที่ต้องการให้รายงานระดับสัญญาณหรือไม่
-                            for sr_keyword in signal_report_keywords:
-                                if sr_keyword.lower() == keyword.lower():
-                                    is_signal_report_trigger = True
-                                    break
-                            break # เมื่อเจอ trigger keyword แรก ก็ออกจาก loop trigger_keywords ของ rule นี้
+                            found_any_trigger = True
+                            actual_triggered_keyword = keyword # เก็บ keyword ที่ trigger จริงๆ
+                            break
 
-                    if found_trigger:
-                        # ถ้าเจอ Keyword หลักแล้ว ให้ตรวจสอบคำที่ยกเว้น
+                    if found_any_trigger:
                         found_exception = False
-                        if except_keywords_list:  # ตรวจสอบว่ามีรายการคำยกเว้นหรือไม่
+                        if except_keywords_list:
                             for except_word in except_keywords_list:
                                 if except_word.lower() in transcript_text.lower():
                                     found_exception = True
-                                    log(f"{log_prefix} ℹ️ พบ Keyword '{keyword}' แต่ก็พบคำยกเว้น '{except_word}' ด้วย จึงไม่ทำการตอบกลับ TTS")
-                                    break  # ออกจาก loop ของ except_keywords
+                                    log(f"{log_prefix} ℹ️ พบ Keyword '{actual_triggered_keyword}' แต่ก็พบคำยกเว้น '{except_word}'. ข้าม TTS.")
+                                    break
 
-                        if not found_exception:  # ถ้าไม่พบคำที่ยกเว้นใดๆ จึงค่อยพิจารณาสร้างข้อความตอบกลับ
+                        if not found_exception:
                             response_to_speak_base = tts_config_item.get("response_text")
                             response_voice = tts_config_item.get("response_voice")
-
                             final_response_to_speak = response_to_speak_base
 
-                            # เพิ่มข้อมูลระดับสัญญาณก็ต่อเมื่อ is_signal_report_trigger เป็น True เท่านั้น
-                            if is_signal_report_trigger and avg_signal_db_from_queue is not None:
+                            # แทนที่ {signal_db} หรือต่อท้าย เฉพาะเมื่อ rule นี้ถูกกำหนดให้รายงานสัญญาณ และมีค่าสัญญาณ
+                            if is_this_a_signal_report_rule and avg_signal_db_from_queue is not None:
                                 if "{signal_db}" in final_response_to_speak:
-                                    final_response_to_speak = final_response_to_speak.replace("{signal_db}",
-                                                                                              f"{avg_signal_db_from_queue:.1f}")
-                                else: # ถ้าไม่มี placeholder ก็ต่อท้าย (สำหรับกรณี "ทดสอบระดับสัญญาณ" เท่านั้น)
+                                    final_response_to_speak = final_response_to_speak.replace("{signal_db}", f"{avg_signal_db_from_queue:.1f}")
+                                    log(f"{log_prefix} 💬 แทนที่ {{signal_db}} ด้วย {avg_signal_db_from_queue:.1f} dBm")
+                                else:
                                     final_response_to_speak += f" ระดับสัญญาณเฉลี่ย {avg_signal_db_from_queue:.1f} ดีบีเอ็ม"
+                                    log(f"{log_prefix} 💬 ต่อท้ายด้วยระดับสัญญาณ {avg_signal_db_from_queue:.1f} dBm")
+                            elif not is_this_a_signal_report_rule:
+                                log(f"{log_prefix} 💬 Rule นี้ ({actual_triggered_keyword}) ไม่ใช่สำหรับรายงานสัญญาณ, ไม่เพิ่มข้อมูล dB.")
+                            elif avg_signal_db_from_queue is None:
+                                log(f"{log_prefix} 💬 ไม่มีข้อมูลระดับสัญญาณสำหรับ Rule นี้ ({actual_triggered_keyword}).")
                             # --- สิ้นสุดการตรวจสอบ ---
 
                             if final_response_to_speak:
