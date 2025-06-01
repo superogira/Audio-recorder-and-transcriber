@@ -74,7 +74,7 @@ IBM_URL = config.get("ibm_url", "")
 TINYSA_ENABLED = config.get("tinysa_enabled", True)
 TINYSA_SERIAL_PORT = '/dev/ttyACM0'  # <<<< แก้ไขเป็นพอร์ตที่ถูกต้องของ TinySA บน Pi ของคุณ
 TINYSA_BAUDRATE = 115200            # Baudrate ปกติของ TinySA คือ 115200 หรือตรวจสอบจากคู่มือ
-TARGET_FREQUENCY_HZ = 145200000    # ความถี่ที่คุณต้องการวัด (Hz)
+TARGET_FREQUENCY_HZ = 145212500   # ความถี่ที่คุณต้องการวัด (Hz)
 TINYSA_SWEEP_POINTS = config.get("tinysa_sweep_points", 40) # จำนวนจุดในการ sweep
 TINYSA_REPEAT_INTERVAL = config.get("tinysa_repeat_interval", 5) # ms (ตามที่คุณระบุ)
 # อาจจะต้องมีตัวแปรเก็บสถานะของ TinySA (paused/resumed)
@@ -1320,66 +1320,61 @@ def worker(worker_id):
             # --- ส่วนตรวจสอบ Keyword และเรียก TTS ---
             if AZURE_TTS_RESPONSES_ENABLED and transcript_text and not transcript_text.startswith("["):  # ตรวจสอบว่าไม่ใช่ error message
                 for tts_config_item in TTS_RESPONSES_CONFIG:
-                    trigger_keywords = tts_config_item.get("trigger_keywords", [])
+                    trigger_keywords_from_config = tts_config_item.get("trigger_keywords", [])
                     except_keywords_list = tts_config_item.get("except_keywords", [])  # ดึงคำที่ยกเว้น
 
                     # --- กำหนด Keyword เฉพาะสำหรับการรายงานระดับสัญญาณ ---
-                    signal_report_keywords = ["ทดสอบระดับสัญญา", "ทดสอบสัญญา"]
+                    signal_report_keywords = ["สอบระดับสัญญา", "สอบสัญญา","ลองระดับสัญญา","ลองสัญญา"]
                     # --- สิ้นสุดการกำหนด Keyword เฉพาะ ---
 
-                    # found_trigger = False
-                    # is_signal_report_trigger = False # Flag ว่า trigger นี้เป็น trigger สำหรับรายงานสัญญาณหรือไม่
+                    found_overall_trigger = False
+                    is_this_rule_for_signal_report = False  # Flag ว่า trigger นี้เป็น trigger สำหรับรายงานสัญญาณหรือไม่
+                    actual_triggered_keyword_in_text = None  # <--- เพิ่มตัวแปรนี้เพื่อเก็บ keyword ที่ trigger จริงๆ
 
-                    found_any_trigger = False
-                    is_this_a_signal_report_rule = False  # Flag สำหรับ rule นี้โดยเฉพาะ
+                    # 1. ตรวจสอบว่า transcript มี trigger keyword ของ rule นี้หรือไม่
+                    for config_keyword in trigger_keywords_from_config:
+                        if config_keyword.lower() in transcript_text.lower():
+                            found_overall_trigger = True
+                            actual_triggered_keyword_in_text = config_keyword  # Keyword จาก config ที่ match
+                            # 2. เมื่อเจอ trigger, ให้ตรวจสอบทันทีว่า keyword ที่ trigger นี้ เป็น signal report keyword หรือไม่
+                            for sr_keyword in signal_report_keywords_hardcoded:
+                                if sr_keyword.lower() == config_keyword.lower():  # เปรียบเทียบ config_keyword กับ signal_report_keywords
+                                    is_this_rule_for_signal_report = True
+                                    break  # ออกจาก loop sr_keyword
+                            break  # ออกจาก loop config_keyword เพราะเจอ trigger แล้ว
 
-                    # ตรวจสอบว่า trigger_keywords ของ rule นี้ มีคำใดคำหนึ่งอยู่ใน signal_report_keywords หรือไม่
-                    for tk in trigger_keywords:
-                        if tk.lower() in [srk.lower() for srk in signal_report_keywords]:
-                            is_this_a_signal_report_rule = True
-                            break
-
-                    # ตรวจสอบว่า transcript มี trigger keyword ของ rule นี้หรือไม่
-                    actual_triggered_keyword = None
-                    for keyword in trigger_keywords:
-                        if keyword.lower() in transcript_text.lower():
-                            found_any_trigger = True
-                            actual_triggered_keyword = keyword # เก็บ keyword ที่ trigger จริงๆ
-                            break
-
-                    if found_any_trigger:
+                    if found_overall_trigger:
+                        # 3. ถ้าเจอ Trigger Keyword แล้ว, ให้ตรวจสอบ Exception Keyword
                         found_exception = False
                         if except_keywords_list:
                             for except_word in except_keywords_list:
                                 if except_word.lower() in transcript_text.lower():
                                     found_exception = True
-                                    log(f"{log_prefix} ℹ️ พบ Keyword '{actual_triggered_keyword}' แต่ก็พบคำยกเว้น '{except_word}'. ข้าม TTS.")
+                                    log(f"{log_prefix} ℹ️ Trigger '{actual_triggered_keyword_in_text}' พบ แต่มี Exception '{except_word}'. ข้าม TTS.")
                                     break
 
                         if not found_exception:
+                            # 4. ถ้าไม่ติด Exception, สร้างข้อความตอบกลับ
                             response_to_speak_base = tts_config_item.get("response_text")
                             response_voice = tts_config_item.get("response_voice")
                             final_response_to_speak = response_to_speak_base
 
-                            # แทนที่ {signal_db} หรือต่อท้าย เฉพาะเมื่อ rule นี้ถูกกำหนดให้รายงานสัญญาณ และมีค่าสัญญาณ
-                            log(f"DEBUG: response_to_speak_base = '{response_to_speak_base}'")
-                            if is_this_a_signal_report_rule and avg_signal_db_from_queue is not None:
-                                log(f"DEBUG: is_this_a_signal_report_rule is True and avg_signal_db is {avg_signal_db_from_queue}")
-                                if "{signal_db}" in response_to_speak_base:
-                                    # final_response_to_speak = final_response_to_speak.replace("{signal_db}", f"{avg_signal_db_from_queue:.1f}")
-                                    final_response_to_speak = response_to_speak_base.replace("{signal_db}",f"{avg_signal_db_from_queue:.1f}")
-                                    log(f"{log_prefix} 💬 แทนที่ {{signal_db}} ด้วย {avg_signal_db_from_queue:.1f} dBm")
+                            # 5. เพิ่มข้อมูลระดับสัญญาณ ถ้า rule นี้สำหรับรายงานสัญญาณ และมีค่าสัญญาณ
+                            if is_this_rule_for_signal_report and avg_signal_db_from_queue is not None:
+                                if "{signal_db}" in final_response_to_speak:
+                                    final_response_to_speak = final_response_to_speak.replace("{signal_db}",
+                                                                                              f"{avg_signal_db_from_queue:.1f}")
+                                    log(f"{log_prefix} 💬 (Rule: '{actual_triggered_keyword_in_text}') แทนที่ {{signal_db}} ด้วย {avg_signal_db_from_queue:.1f} dBm")
                                 else:
                                     final_response_to_speak += f" ระดับสัญญาณเฉลี่ย {avg_signal_db_from_queue:.1f} ดีบีเอ็ม"
-                                    log(f"{log_prefix} 💬 ต่อท้ายด้วยระดับสัญญาณ {avg_signal_db_from_queue:.1f} dBm")
-                            elif not is_this_a_signal_report_rule:
-                                log(f"{log_prefix} 💬 Rule นี้ ({actual_triggered_keyword}) ไม่ใช่สำหรับรายงานสัญญาณ, ไม่เพิ่มข้อมูล dB.")
-                            elif avg_signal_db_from_queue is None:
-                                log(f"{log_prefix} 💬 ไม่มีข้อมูลระดับสัญญาณสำหรับ Rule นี้ ({actual_triggered_keyword}).")
-                            # --- สิ้นสุดการตรวจสอบ ---
+                                    log(f"{log_prefix} 💬 (Rule: '{actual_triggered_keyword_in_text}') ต่อท้ายด้วยระดับสัญญาณ {avg_signal_db_from_queue:.1f} dBm")
+                            elif is_this_rule_for_signal_report and avg_signal_db_from_queue is None:
+                                log(f"{log_prefix} 💬 (Rule: '{actual_triggered_keyword_in_text}') เป็น Rule รายงานสัญญาณ แต่ไม่มีค่า Signal DB.")
+                            else:  # ไม่ใช่ rule สำหรับรายงานสัญญาณ
+                                log(f"{log_prefix} 💬 (Rule: '{actual_triggered_keyword_in_text}') ไม่ใช่สำหรับรายงานสัญญาณ, ไม่เพิ่มข้อมูล dB.")
 
                             if final_response_to_speak:
-                                log(f"{log_prefix} 🗣️ พบ Keyword, กำลังเตรียมพูด: '{final_response_to_speak}'")
+                                log(f"{log_prefix} 🗣️ เตรียมพูด: '{final_response_to_speak}'")
                                 tts_thread = threading.Thread(target=speak_text_azure,
                                                               args=(final_response_to_speak, response_voice),
                                                               daemon=True)
