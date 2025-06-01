@@ -1362,9 +1362,12 @@ def worker(worker_id):
                             final_response_to_speak = response_to_speak_base
 
                             # แทนที่ {signal_db} หรือต่อท้าย เฉพาะเมื่อ rule นี้ถูกกำหนดให้รายงานสัญญาณ และมีค่าสัญญาณ
+                            log(f"DEBUG: response_to_speak_base = '{response_to_speak_base}'")
                             if is_this_a_signal_report_rule and avg_signal_db_from_queue is not None:
-                                if "{signal_db}" in final_response_to_speak:
-                                    final_response_to_speak = final_response_to_speak.replace("{signal_db}", f"{avg_signal_db_from_queue:.1f}")
+                                log(f"DEBUG: is_this_a_signal_report_rule is True and avg_signal_db is {avg_signal_db_from_queue}")
+                                if "{signal_db}" in response_to_speak_base:
+                                    # final_response_to_speak = final_response_to_speak.replace("{signal_db}", f"{avg_signal_db_from_queue:.1f}")
+                                    final_response_to_speak = response_to_speak_base.replace("{signal_db}",f"{avg_signal_db_from_queue:.1f}")
                                     log(f"{log_prefix} 💬 แทนที่ {{signal_db}} ด้วย {avg_signal_db_from_queue:.1f} dBm")
                                 else:
                                     final_response_to_speak += f" ระดับสัญญาณเฉลี่ย {avg_signal_db_from_queue:.1f} ดีบีเอ็ม"
